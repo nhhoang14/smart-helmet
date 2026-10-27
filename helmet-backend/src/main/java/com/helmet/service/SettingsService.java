@@ -19,7 +19,10 @@ public class SettingsService {
     public DeviceSettings getSettings(String deviceId) {
         return settingsRepository.findById(deviceId)
                 .orElseGet(() -> {
-                    DeviceSettings ds = new DeviceSettings(deviceId);
+                    DeviceSettings ds = DeviceSettings.builder()
+                            .deviceId(deviceId)
+                            .updatedAt(Instant.now())
+                            .build();
                     return settingsRepository.save(ds);
                 });
     }
@@ -31,7 +34,6 @@ public class SettingsService {
         settings.setGasDangerFactor(dto.getGasDangerFactor());
         settings.setOfflineTimeoutSec(dto.getOfflineTimeoutSec());
         settings.setTelemetrySampleSec(dto.getTelemetrySampleSec());
-        settings.setTelegramChatId(dto.getTelegramChatId());
         settings.setUpdatedAt(Instant.now());
         return settingsRepository.save(settings);
     }

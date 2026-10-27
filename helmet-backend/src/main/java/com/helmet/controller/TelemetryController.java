@@ -1,4 +1,4 @@
-package com.helmet.web;
+package com.helmet.controller;
 
 import com.helmet.dto.TelemetryMessage;
 import com.helmet.model.Telemetry;

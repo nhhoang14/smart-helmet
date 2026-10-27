@@ -1,4 +1,4 @@
-package com.helmet.web;
+package com.helmet.controller;
 
 import com.helmet.dto.AlertDto;
 import com.helmet.dto.EventMessage;

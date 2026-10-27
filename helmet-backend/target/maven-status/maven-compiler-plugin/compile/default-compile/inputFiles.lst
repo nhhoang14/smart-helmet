@@ -30,7 +30,6 @@
 /Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/DeviceService.java
 /Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/OfflineWatchdog.java
 /Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/SettingsService.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/TelegramNotifier.java
 /Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/TelemetryService.java
 /Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/TelemetrySimulator.java
 /Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/web/AlertController.java

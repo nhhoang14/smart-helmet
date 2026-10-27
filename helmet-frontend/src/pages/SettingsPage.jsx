@@ -11,7 +11,6 @@ const DEFAULT_SETTINGS = {
   gasDangerFactor:   1.5,
   offlineTimeoutSec: 10,
   telemetrySampleSec: 5,
-  telegramChatId:    '',
 };
 
 export function SettingsPage() {
@@ -169,43 +168,6 @@ export function SettingsPage() {
             <span className="form-hint">
               Ước tính: {Math.round(86400 / (settings.telemetrySampleSec || 5)).toLocaleString()} dòng/ngày
             </span>
-          </div>
-        </div>
-
-        {/* Telegram */}
-        <div className="card animate-in">
-          <div className="card-title">📬 Telegram Bot</div>
-
-          <div className="form-group">
-            <label className="form-label">Chat ID nhận cảnh báo</label>
-            <input
-              type="text"
-              className="form-input"
-              id="telegram-chat-id-input"
-              placeholder="Ví dụ: -1001234567890"
-              value={settings.telegramChatId || ''}
-              onChange={e => handleChange('telegramChatId', e.target.value)}
-            />
-            <span className="form-hint">
-              Chat ID của Telegram Bot để nhận cảnh báo té ngã, SOS và nguy hiểm khí.
-              Để trống để tắt thông báo.
-            </span>
-          </div>
-
-          <div style={{
-            background: 'var(--c-bg)',
-            borderRadius: 'var(--radius-sm)',
-            padding: 14,
-            border: '1px solid var(--c-border)',
-            fontSize: '0.8rem',
-            color: 'var(--c-text-muted)',
-            lineHeight: 1.8,
-          }}>
-            <div style={{ marginBottom: 4, color: 'var(--c-text)', fontWeight: 500 }}>📖 Hướng dẫn lấy Chat ID:</div>
-            <div>1. Tạo bot mới qua <code style={{ background: 'var(--c-surface-2)', padding: '1px 5px', borderRadius: 3 }}>@BotFather</code></div>
-            <div>2. Thêm bot vào nhóm hoặc nhắn tin trực tiếp</div>
-            <div>3. Gửi tin nhắn rồi truy cập <code style={{ background: 'var(--c-surface-2)', padding: '1px 5px', borderRadius: 3 }}>getUpdates</code> API</div>
-            <div>4. Sao chép <code style={{ background: 'var(--c-surface-2)', padding: '1px 5px', borderRadius: 3 }}>chat.id</code> từ kết quả</div>
           </div>
         </div>
 

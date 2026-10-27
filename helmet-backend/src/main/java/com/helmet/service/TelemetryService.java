@@ -51,7 +51,11 @@ public class TelemetryService {
         Instant recordedAt = msg.getTs() != null ? Instant.ofEpochSecond(msg.getTs()) : now;
 
         Device device = deviceRepository.findById(deviceId)
-                .orElseGet(() -> deviceRepository.save(new Device(deviceId, "Mũ #" + deviceId, "Khu vực B2")));
+                .orElseGet(() -> deviceRepository.save(Device.builder()
+                        .id(deviceId)
+                        .name("Mũ #" + deviceId)
+                        .zone("Khu vực hầm lò")
+                        .build()));
 
         boolean wasOffline = !device.isOnline();
         device.setOnline(true);
@@ -79,15 +83,15 @@ public class TelemetryService {
         boolean isExceeded = gas >= settings.getGasWarnPpm();
 
         if (isExceeded || elapsedSec >= settings.getTelemetrySampleSec()) {
-            Telemetry t = new Telemetry(
-                    deviceId,
-                    gas,
-                    device.isWorn(),
-                    Boolean.TRUE.equals(msg.getFall()),
-                    device.getLastLat(),
-                    device.getLastLng(),
-                    recordedAt
-            );
+            Telemetry t = Telemetry.builder()
+                    .deviceId(deviceId)
+                    .gasPpm(gas)
+                    .isWorn(msg.getWorn())
+                    .fallState(msg.getFall())
+                    .lat(msg.getLat())
+                    .lng(msg.getLng())
+                    .recordedAt(recordedAt)
+                    .build();
             telemetryRepository.save(t);
             lastSavedTimeMap.put(deviceId, now);
         }
