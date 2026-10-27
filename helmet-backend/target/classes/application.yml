@@ -39,8 +39,6 @@ helmet:
     # Tự động giả lập dữ liệu thực tế đẩy vào DB và WebSocket khi không có phần cứng ESP32 thật
     enabled: true
     interval-ms: 2000
-  telegram:
-    bot-token: ${TELEGRAM_BOT_TOKEN:}
 
 logging:
   level:

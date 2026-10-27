@@ -22,16 +22,13 @@ public class AlertService {
 
     private final AlertRepository alertRepository;
     private final SettingsService settingsService;
-    private final TelegramNotifier telegramNotifier;
     private final RealtimePublisher realtimePublisher;
 
     public AlertService(AlertRepository alertRepository,
                         SettingsService settingsService,
-                        TelegramNotifier telegramNotifier,
                         RealtimePublisher realtimePublisher) {
         this.alertRepository = alertRepository;
         this.settingsService = settingsService;
-        this.telegramNotifier = telegramNotifier;
         this.realtimePublisher = realtimePublisher;
     }
 
@@ -84,17 +81,16 @@ public class AlertService {
     private Alert createAndPublishAlert(String deviceId, AlertType type, AlertSeverity severity,
                                        String message, Double gasPpm, Double lat, Double lng,
                                        DeviceSettings settings) {
-        Alert alert = new Alert(deviceId, type, severity, message, gasPpm, lat, lng);
+        Alert alert = Alert.builder()
+            .deviceId(deviceId)
+            .type(type)
+            .severity(severity)
+            .message(message)
+            .gasPpm(gasPpm)
+            .lat(lat)
+            .lng(lng)
+            .build();
         alert = alertRepository.save(alert);
-
-        // Gửi Telegram nếu có cấu hình
-        if (settings != null && settings.getTelegramChatId() != null) {
-            boolean sent = telegramNotifier.sendAlert(settings.getTelegramChatId(), alert);
-            if (sent) {
-                alert.setTelegramSent(true);
-                alert = alertRepository.save(alert);
-            }
-        }
 
         AlertDto dto = AlertDto.fromEntity(alert);
         realtimePublisher.publishAlert(dto);

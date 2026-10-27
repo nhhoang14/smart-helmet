@@ -1,4 +1,4 @@
-package com.helmet.web;
+package com.helmet.controller;
 
 import com.helmet.dto.CommandRequest;
 import com.helmet.service.CommandService;

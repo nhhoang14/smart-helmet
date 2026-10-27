@@ -43,7 +43,11 @@ public class DeviceService {
         Device device = deviceRepository.findById(id)
                 .orElseGet(() -> {
                     // Tự động tạo device 01 nếu chưa có
-                    Device newDev = new Device(id, "Mũ #" + id, "Khu vực hầm lò");
+                    Device newDev = Device.builder()
+                            .id(id)
+                            .name("Mũ #" + id)
+                            .zone("Khu vực hầm lò")
+                            .build();
                     return deviceRepository.save(newDev);
                 });
 

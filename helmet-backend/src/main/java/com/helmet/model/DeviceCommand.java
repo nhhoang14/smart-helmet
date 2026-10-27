@@ -1,10 +1,21 @@
 package com.helmet.model;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 import java.time.Instant;
 
 @Entity
 @Table(name = "device_commands")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class DeviceCommand {
 
     @Id
@@ -20,43 +31,14 @@ public class DeviceCommand {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String payload;
 
+    @Builder.Default
     @Column(nullable = false, length = 10)
     private String status = "SENT";
 
     @Column(name = "created_by")
     private Long createdBy;
 
+    @Builder.Default
     @Column(name = "sent_at", nullable = false)
     private Instant sentAt = Instant.now();
-
-    public DeviceCommand() {}
-
-    public DeviceCommand(String deviceId, String commandType, String payload, String status) {
-        this.deviceId = deviceId;
-        this.commandType = commandType;
-        this.payload = payload;
-        this.status = status;
-        this.sentAt = Instant.now();
-    }
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-
-    public String getDeviceId() { return deviceId; }
-    public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
-
-    public String getCommandType() { return commandType; }
-    public void setCommandType(String commandType) { this.commandType = commandType; }
-
-    public String getPayload() { return payload; }
-    public void setPayload(String payload) { this.payload = payload; }
-
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-
-    public Long getCreatedBy() { return createdBy; }
-    public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
-
-    public Instant getSentAt() { return sentAt; }
-    public void setSentAt(Instant sentAt) { this.sentAt = sentAt; }
 }

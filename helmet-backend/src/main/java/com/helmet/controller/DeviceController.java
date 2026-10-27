@@ -1,4 +1,4 @@
-package com.helmet.web;
+package com.helmet.controller;
 
 import com.helmet.dto.DeviceStateDto;
 import com.helmet.model.Device;

@@ -3,7 +3,6 @@ package com.helmet.dto;
 import com.helmet.model.DeviceSettings;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotNull;
 
 public class SettingsDto {
 
@@ -22,8 +21,6 @@ public class SettingsDto {
     @Max(60)
     private int telemetrySampleSec = 5;
 
-    private String telegramChatId;
-
     public SettingsDto() {}
 
     public static SettingsDto fromEntity(DeviceSettings s) {
@@ -32,7 +29,6 @@ public class SettingsDto {
         dto.setGasDangerFactor(s.getGasDangerFactor());
         dto.setOfflineTimeoutSec(s.getOfflineTimeoutSec());
         dto.setTelemetrySampleSec(s.getTelemetrySampleSec());
-        dto.setTelegramChatId(s.getTelegramChatId());
         return dto;
     }
 
@@ -48,6 +44,4 @@ public class SettingsDto {
     public int getTelemetrySampleSec() { return telemetrySampleSec; }
     public void setTelemetrySampleSec(int telemetrySampleSec) { this.telemetrySampleSec = telemetrySampleSec; }
 
-    public String getTelegramChatId() { return telegramChatId; }
-    public void setTelegramChatId(String telegramChatId) { this.telegramChatId = telegramChatId; }
 }

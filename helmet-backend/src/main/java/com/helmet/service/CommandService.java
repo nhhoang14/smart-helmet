@@ -46,7 +46,12 @@ public class CommandService {
         }
 
         // Tạo bản ghi command trong DB
-        DeviceCommand cmd = new DeviceCommand(deviceId, cmdType, payloadJson, "SENT");
+        DeviceCommand cmd = DeviceCommand.builder()
+                .deviceId(deviceId)
+                .commandType(cmdType)
+                .payload(payloadJson)
+                .status("SENT")
+                .build();
         commandRepository.save(cmd);
 
         // Cập nhật trạng thái thiết bị
