@@ -26,7 +26,11 @@ public class DataInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) {
         if (!deviceRepository.existsById("01")) {
-            Device dev = new Device("01", "Mũ #01", "Khu vực hầm lò B2");
+            Device dev = Device.builder()
+                    .id("01")
+                    .name("Mũ #01")
+                    .zone("Khu vực hầm lò")
+                    .build();
             dev.setOnline(true);
             dev.setWorn(true);
             dev.setBuzzerOn(false);
@@ -38,7 +42,10 @@ public class DataInitializer implements CommandLineRunner {
         }
 
         if (!settingsRepository.existsById("01")) {
-            DeviceSettings settings = new DeviceSettings("01");
+            DeviceSettings settings = DeviceSettings.builder()
+                    .deviceId("01")
+                    .updatedAt(Instant.now())
+                    .build();
             settings.setGasWarnPpm(400);
             settings.setGasDangerFactor(1.5);
             settings.setOfflineTimeoutSec(10);

@@ -15,7 +15,7 @@ Phạm vi MVP: **1 mũ bảo hộ** (`device_id = 01`), nhưng mọi bảng và 
 | Backend | Java 17, Spring Boot 3, Spring Integration MQTT, Spring WebSocket (STOMP), Spring Data JPA, Flyway | Nhận MQTT, áp dụng luật cảnh báo, lưu DB, REST API, đẩy realtime |
 | CSDL | PostgreSQL 16 | Lưu thiết bị, telemetry, cảnh báo, cấu hình, lệnh |
 | Frontend | React 18, Vite, Recharts, Leaflet, @stomp/stompjs | Dashboard realtime |
-| Thông báo ngoài | Telegram Bot API (webhook) | Đẩy cảnh báo ra điện thoại |
+| Thông báo | WebSocket nội bộ | Đẩy cảnh báo realtime lên giao diện React |
 | Triển khai | Docker Compose | Chạy toàn bộ hệ thống |
 
 ---
@@ -32,15 +32,15 @@ Phạm vi MVP: **1 mũ bảo hộ** (`device_id = 01`), nhưng mọi bảng và 
  └──────────────┘                                       │           │
                                           REST/WebSocket│           │HTTPS
                                                 ┌───────▼──────┐ ┌──▼────────┐
-                                                │ React web    │ │ Telegram  │
-                                                │ dashboard    │ │ Bot       │
-                                                └──────────────┘ └───────────┘
+                                                │ React web    │
+                                                │ dashboard    │
+                                                └──────────────┘
 ```
 
 Ba luồng chính:
 
 1. **Telemetry**: ESP32 publish mỗi 1–2 giây, backend nhận, kiểm tra ngưỡng khí, lưu DB (lấy mẫu thưa), đẩy xuống web qua WebSocket.
-2. **Sự kiện (té ngã, SOS)**: ESP32 tự phát hiện té ngã bằng TinyML với MPU6050, chỉ publish sự kiện. Backend tạo cảnh báo mức nguy hiểm, đẩy WebSocket và gửi Telegram.
+2. **Sự kiện (té ngã, SOS)**: ESP32 tự phát hiện té ngã bằng TinyML với MPU6050, chỉ publish sự kiện. Backend tạo cảnh báo mức nguy hiểm và đẩy WebSocket nội bộ.
 3. **Lệnh điều khiển**: người dùng bấm "Bật còi" trên web, gọi REST, backend publish xuống `helmet/{id}/cmd`, ESP32 nhận và bật còi.
 
 ---
@@ -100,7 +100,6 @@ users 1 ──── n device_commands   (created_by)
 | `gas_danger_factor` | NUMERIC(3,1) | NOT NULL, DEFAULT 1.5 | Ngưỡng nguy hiểm = `gas_warn_ppm` × hệ số này |
 | `offline_timeout_sec` | INTEGER | NOT NULL, DEFAULT 10 | Quá thời gian này không có bản tin thì coi là mất kết nối |
 | `telemetry_sample_sec` | INTEGER | NOT NULL, DEFAULT 5 | Chu kỳ lưu telemetry vào DB (lấy mẫu thưa) |
-| `telegram_chat_id` | VARCHAR(64) | | Chat nhận cảnh báo Telegram |
 | `updated_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | Lần sửa cuối |
 
 ### 4.4 Bảng `telemetry` – dữ liệu cảm biến
@@ -135,7 +134,6 @@ Gợi ý dung lượng: nếu lưu từng giây sẽ khoảng 86.000 dòng mỗi
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | Thời điểm phát sinh |
 | `acknowledged_at` | TIMESTAMPTZ | | Thời điểm được xác nhận |
 | `acknowledged_by` | BIGINT | FK → `users.id` | Người xác nhận (NULL nếu chưa có đăng nhập) |
-| `telegram_sent` | BOOLEAN | NOT NULL, DEFAULT false | Đã gửi Telegram chưa |
 
 Index: `(device_id, status, created_at DESC)`.
 
@@ -205,7 +203,6 @@ helmet-backend/
     │   │   │   ├── CommandService.java
     │   │   │   ├── SettingsService.java
     │   │   │   ├── OfflineWatchdog.java
-    │   │   │   └── TelegramNotifier.java
     │   │   ├── web/
     │   │   │   ├── DeviceController.java
     │   │   │   ├── TelemetryController.java
@@ -273,12 +270,11 @@ helmet-backend/
 | File | Chức năng |
 |---|---|
 | `TelemetryService.java` | Nhận telemetry: cập nhật trạng thái hiện tại của `devices` (online, đội mũ, vị trí, `last_seen_at`); gọi `AlertService.evaluateGas()`; lưu vào `telemetry` theo chu kỳ `telemetry_sample_sec` (và luôn lưu khi vượt ngưỡng); gọi `RealtimePublisher` để đẩy xuống web. |
-| `AlertService.java` | Trái tim của hệ thống cảnh báo. `evaluateGas()`: so sánh với ngưỡng, chỉ tạo cảnh báo khi **chuyển mức** (an toàn → cảnh báo → nguy hiểm) để không tạo hàng loạt cảnh báo trùng. `handleEvent()`: tạo cảnh báo `FALL` hoặc `SOS` mức `DANGER`. `createOffline()`: cảnh báo mất kết nối. `acknowledge()`: chuyển trạng thái `ACKNOWLEDGED`, ghi thời gian và người xác nhận. Mỗi cảnh báo mới đều gọi `RealtimePublisher` và `TelegramNotifier`. |
+| `AlertService.java` | Trái tim của hệ thống cảnh báo. `evaluateGas()`: so sánh với ngưỡng, chỉ tạo cảnh báo khi **chuyển mức** (an toàn → cảnh báo → nguy hiểm) để không tạo hàng loạt cảnh báo trùng. `handleEvent()`: tạo cảnh báo `FALL` hoặc `SOS` mức `DANGER`. `createOffline()`: cảnh báo mất kết nối. `acknowledge()`: chuyển trạng thái `ACKNOWLEDGED`, ghi thời gian và người xác nhận. Mỗi cảnh báo mới được lưu và đẩy qua `RealtimePublisher`. |
 | `DeviceService.java` | Quản lý trạng thái thiết bị; xử lý bản tin `status` (online/offline); lấy trạng thái hiện tại cho dashboard. |
 | `CommandService.java` | Nhận yêu cầu bật/tắt còi: lưu `device_commands`, gọi `MqttCommandPublisher`, cập nhật `buzzer_on`, cập nhật trạng thái lệnh `SENT`/`FAILED`. |
-| `SettingsService.java` | Đọc và cập nhật `device_settings` (ngưỡng khí, timeout, Telegram). Kiểm tra giá trị hợp lệ (ví dụ ngưỡng 100–1000). |
+| `SettingsService.java` | Đọc và cập nhật `device_settings` (ngưỡng khí, timeout). Kiểm tra giá trị hợp lệ (ví dụ ngưỡng 100–1000). |
 | `OfflineWatchdog.java` | Job `@Scheduled` chạy mỗi 5 giây: tìm thiết bị `is_online` mà `last_seen_at` quá `offline_timeout_sec`, đặt `is_online = false`, tạo cảnh báo `OFFLINE`, đẩy realtime. |
-| `TelegramNotifier.java` | Gửi tin nhắn cảnh báo tới `telegram_chat_id` bằng HTTP tới Telegram Bot API (token đọc từ biến môi trường). Lỗi mạng chỉ log, không ảnh hưởng luồng chính. |
 
 ### 5.6 `web/` (REST controller)
 
@@ -306,7 +302,7 @@ helmet-backend/
 
 | File | Chức năng |
 |---|---|
-| `application.yml` | Cấu hình DB, MQTT broker, cổng, token Telegram (qua biến môi trường), CORS origin. |
+| `application.yml` | Cấu hình DB, MQTT broker, cổng và CORS origin. |
 | `db/migration/V1__init.sql` | Flyway tạo toàn bộ bảng ở mục 4, index, và chèn sẵn thiết bị `01` cùng `device_settings` mặc định. |
 | `AlertServiceTest.java` | Kiểm thử luật cảnh báo: chuyển mức đúng, không tạo trùng, xác nhận đúng. |
 | `MqttInboundHandlerTest.java` | Kiểm thử parse topic và payload, xử lý payload lỗi. |
@@ -397,7 +393,7 @@ helmet-frontend/
 | `DashboardPage.jsx` | Trang chính (giống bản mẫu): ghép `StatusBand`, `GasGauge`, `HelmetStatusCard`, `SiteMap`, `GasChart`, `AlertList`. |
 | `AlertsPage.jsx` | Lịch sử cảnh báo có phân trang, lọc theo loại và trạng thái, xem vị trí xảy ra. |
 | `HistoryPage.jsx` | Biểu đồ nồng độ khí theo khoảng thời gian tự chọn (gọi `getTelemetry`). |
-| `SettingsPage.jsx` | Chỉnh ngưỡng cảnh báo, timeout mất kết nối, chat Telegram (gọi `getSettings`/`updateSettings`). |
+| `SettingsPage.jsx` | Chỉnh ngưỡng cảnh báo và timeout mất kết nối (gọi `getSettings`/`updateSettings`). |
 
 ### 6.5 `components/`
 
@@ -452,7 +448,7 @@ helmet-system/
 
 | File | Chức năng |
 |---|---|
-| `docker-compose.yml` | Chạy 4 dịch vụ: `mosquitto` (1883), `postgres` (5432, volume lưu dữ liệu), `backend` (8080), `frontend` (80 hoặc 5173). Biến môi trường: mật khẩu DB, token Telegram, địa chỉ broker. |
+| `docker-compose.yml` | Chạy 4 dịch vụ: `mosquitto` (1883), `postgres` (5432, volume lưu dữ liệu), `backend` (8080), `frontend` (80 hoặc 5173). Biến môi trường: mật khẩu DB và địa chỉ broker. |
 | `mosquitto/mosquitto.conf` | Cổng 1883, bật xác thực username/password, tắt `allow_anonymous`. |
 | `firmware/helmet.ino` | Đọc MQ-135, MPU6050 (chạy mô hình TinyML), touch pin, GPS NEO-6M, nút SOS; kết nối Wi-Fi và MQTT; publish telemetry/event/status (đặt Last Will `offline`); subscribe `cmd` để điều khiển còi. |
 
@@ -468,7 +464,7 @@ helmet-system/
 6. **REST**: các controller (thiết bị, cảnh báo, ack, cài đặt, còi) và `MqttCommandPublisher`.
 7. **Frontend**: `realtime.js` + `DashboardPage` (StatusBand, GasGauge, HelmetStatusCard, AlertList), sau đó SiteMap, GasChart.
 8. **Trang phụ**: AlertsPage, HistoryPage, SettingsPage.
-9. **Telegram** và **firmware thật** (nối ESP32 thay script giả lập).
+9. **Firmware thật** (nối ESP32 thay script giả lập).
 10. **Bổ sung nếu còn thời gian**: đăng nhập (bảng `users`), Web Push, nhiều thiết bị.
 
-Điều kiện hoàn thành MVP: bật khí giả lập vượt ngưỡng thì dashboard đổi màu và hiện cảnh báo; gửi event `fall` thì có cảnh báo nguy hiểm và tin Telegram; tắt script giả lập thì xuất hiện cảnh báo mất kết nối; bấm "Bật còi" thì bản tin xuất hiện trên topic `helmet/01/cmd`.
+Điều kiện hoàn thành MVP: bật khí giả lập vượt ngưỡng thì dashboard đổi màu và hiện cảnh báo; gửi event `fall` thì có cảnh báo nguy hiểm trên dashboard; tắt script giả lập thì xuất hiện cảnh báo mất kết nối; bấm "Bật còi" thì bản tin xuất hiện trên topic `helmet/01/cmd`.

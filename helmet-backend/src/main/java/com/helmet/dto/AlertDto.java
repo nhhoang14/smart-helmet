@@ -5,8 +5,13 @@ import com.helmet.model.AlertSeverity;
 import com.helmet.model.AlertStatus;
 import com.helmet.model.AlertType;
 
+import lombok.Getter;
+import lombok.Setter;
+
 import java.time.Instant;
 
+@Getter
+@Setter  
 public class AlertDto {
     private Long id;
     private String deviceId;
@@ -19,8 +24,6 @@ public class AlertDto {
     private AlertStatus status;
     private Instant createdAt;
     private Instant acknowledgedAt;
-    private boolean telegramSent;
-
     public AlertDto() {}
 
     public static AlertDto fromEntity(Alert alert) {
@@ -36,43 +39,6 @@ public class AlertDto {
         dto.setStatus(alert.getStatus());
         dto.setCreatedAt(alert.getCreatedAt());
         dto.setAcknowledgedAt(alert.getAcknowledgedAt());
-        dto.setTelegramSent(alert.isTelegramSent());
         return dto;
     }
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-
-    public String getDeviceId() { return deviceId; }
-    public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
-
-    public AlertType getType() { return type; }
-    public void setType(AlertType type) { this.type = type; }
-
-    public AlertSeverity getSeverity() { return severity; }
-    public void setSeverity(AlertSeverity severity) { this.severity = severity; }
-
-    public String getMessage() { return message; }
-    public void setMessage(String message) { this.message = message; }
-
-    public Double getGasPpm() { return gasPpm; }
-    public void setGasPpm(Double gasPpm) { this.gasPpm = gasPpm; }
-
-    public Double getLat() { return lat; }
-    public void setLat(Double lat) { this.lat = lat; }
-
-    public Double getLng() { return lng; }
-    public void setLng(Double lng) { this.lng = lng; }
-
-    public AlertStatus getStatus() { return status; }
-    public void setStatus(AlertStatus status) { this.status = status; }
-
-    public Instant getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
-
-    public Instant getAcknowledgedAt() { return acknowledgedAt; }
-    public void setAcknowledgedAt(Instant acknowledgedAt) { this.acknowledgedAt = acknowledgedAt; }
-
-    public boolean isTelegramSent() { return telegramSent; }
-    public void setTelegramSent(boolean telegramSent) { this.telegramSent = telegramSent; }
 }
