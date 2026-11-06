@@ -24,16 +24,20 @@ mqtt:
   enabled: true
   broker-url: tcp://localhost:1883
   client-id: helmet-backend-server
-  username: ""
-  password: ""
+  username: ${MQTT_USERNAME:}
+  password: ${MQTT_PASSWORD:}
   sub-topics:
+    - "helmet/device/+/telemetry"
+    - "helmet/device/+/alert"
+    - "helmet/device/+/status"
+    - "helmet/device/+/state"
     - "helmet/+/telemetry"
     - "helmet/+/event"
     - "helmet/+/status"
 
 # Helmet IoT Settings
 helmet:
-  default-device-id: "01"
+  default-device-id: "HELMET_001"
   offline-check-interval-ms: 5000
   simulation:
     # Tự động giả lập dữ liệu thực tế đẩy vào DB và WebSocket khi không có phần cứng ESP32 thật

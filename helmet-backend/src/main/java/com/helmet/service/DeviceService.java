@@ -21,46 +21,125 @@ public class DeviceService {
 
     private final DeviceRepository deviceRepository;
     private final TelemetryRepository telemetryRepository;
+    private final DeviceStateService deviceStateService;
     private final RealtimePublisher realtimePublisher;
 
     public DeviceService(DeviceRepository deviceRepository,
                          TelemetryRepository telemetryRepository,
+                         DeviceStateService deviceStateService,
                          RealtimePublisher realtimePublisher) {
         this.deviceRepository = deviceRepository;
         this.telemetryRepository = telemetryRepository;
+        this.deviceStateService = deviceStateService;
         this.realtimePublisher = realtimePublisher;
     }
 
     public List<Device> getAllDevices() {
-        return deviceRepository.findAll();
+        return deviceRepository.findByDeletedAtIsNull();
     }
 
-    public Optional<Device> getDevice(String id) {
-        return deviceRepository.findById(id);
+    public Optional<Device> getDeviceByUid(String deviceUid) {
+        return deviceRepository.findByDeviceUidAndDeletedAtIsNull(deviceUid);
     }
 
-    public DeviceStateDto getDeviceStateDto(String id) {
-        Device device = deviceRepository.findById(id)
-                .orElseGet(() -> {
-                    // Tự động tạo device 01 nếu chưa có
-                    Device newDev = Device.builder()
-                            .id(id)
-                            .name("Mũ #" + id)
-                            .zone("Khu vực hầm lò")
-                            .build();
-                    return deviceRepository.save(newDev);
-                });
+    public Optional<Device> getDevice(String idOrUid) {
+        Optional<Device> byUid = deviceRepository.findByDeviceUidAndDeletedAtIsNull(idOrUid);
+        if (byUid.isPresent()) return byUid;
+        try {
+            Long id = Long.parseLong(idOrUid);
+            return deviceRepository.findById(id).filter(d -> d.getDeletedAt() == null);
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
 
-        DeviceStateDto dto = toDto(device);
-        // Lấy gasPpm gần nhất
-        Optional<Telemetry> latestTelemetry = telemetryRepository.findTop1ByDeviceIdOrderByRecordedAtDesc(id);
-        latestTelemetry.ifPresent(t -> dto.setGasPpm(t.getGasPpm()));
+    @Transactional
+    public Device registerDevice(Device device) {
+        String deviceUid = device.getDeviceUid() == null ? "" : device.getDeviceUid().trim();
+        if (!deviceUid.matches("[A-Za-z0-9][A-Za-z0-9_-]{2,99}")) {
+            throw new IllegalArgumentException("Mã thiết bị phải dài 3-100 ký tự, chỉ gồm chữ, số, '-' hoặc '_'.");
+        }
+        if (deviceRepository.existsByDeviceUid(deviceUid)) {
+            throw new IllegalArgumentException("Thiết bị có mã " + deviceUid + " đã tồn tại!");
+        }
+        device.setDeviceUid(deviceUid);
+        if (device.getName() == null || device.getName().isBlank()) {
+            device.setName("Mũ " + deviceUid);
+        }
+        device.setCreatedAt(Instant.now());
+        device.setUpdatedAt(Instant.now());
+        Device saved = deviceRepository.save(device);
+
+        // Khởi tạo trạng thái ban đầu trong cache Redis
+        deviceStateService.updateDeviceState(deviceUid, s -> {
+            s.setName(saved.getName());
+            s.setOnline(false);
+            s.setWorn(false);
+            s.setBuzzerOn(false);
+        });
+
+        return saved;
+    }
+
+    @Transactional
+    public Optional<Device> updateDevice(String deviceUid, Device updatedInfo) {
+        return deviceRepository.findByDeviceUidAndDeletedAtIsNull(deviceUid).map(dev -> {
+            if (updatedInfo.getName() != null) dev.setName(updatedInfo.getName());
+            if (updatedInfo.getWorkerName() != null) dev.setWorkerName(updatedInfo.getWorkerName());
+            dev.setUpdatedAt(Instant.now());
+            Device saved = deviceRepository.save(dev);
+
+            deviceStateService.updateDeviceState(deviceUid, s -> {
+                s.setName(saved.getName());
+            });
+            return saved;
+        });
+    }
+
+    @Transactional
+    public boolean softDeleteDevice(String deviceUid) {
+        return deviceRepository.findByDeviceUidAndDeletedAtIsNull(deviceUid).map(dev -> {
+            dev.setDeletedAt(Instant.now());
+            deviceRepository.save(dev);
+            log.info("Soft-deleted device with UID: {}", deviceUid);
+            return true;
+        }).orElse(false);
+    }
+
+    /**
+     * Lấy trạng thái tức thời của mũ từ Redis (Mục 3.5.2 & Mục 3.6: GET /api/v1/devices/{deviceUid}/state)
+     */
+    public DeviceStateDto getDeviceStateDto(String deviceUid) {
+        // Đọc trực tiếp từ Redis / DeviceStateService
+        DeviceStateDto dto = deviceStateService.getDeviceState(deviceUid);
+
+        // Bổ sung thông tin từ DB nếu chưa có
+        deviceRepository.findByDeviceUidAndDeletedAtIsNull(deviceUid).ifPresent(d -> {
+            dto.setName(d.getName());
+            dto.setWorkerName(d.getWorkerName());
+            dto.setOnline(d.isOnline());
+            dto.setWorn(d.isWorn());
+            dto.setBuzzerOn(d.isBuzzerOn());
+            if (d.getLastSeenAt() != null) dto.setLastSeenAt(d.getLastSeenAt());
+            if (d.getLastLat() != null) dto.setLastLat(d.getLastLat());
+            if (d.getLastLng() != null) dto.setLastLng(d.getLastLng());
+        });
+
+        // Lấy gasPpm gần nhất nếu cache chưa có
+        if (dto.getGasPpm() == null || dto.getGasPpm() == 0.0) {
+            telemetryRepository.findTop1ByDeviceUidOrderByLogTimeDesc(deviceUid)
+                    .ifPresent(t -> {
+                        dto.setGasPpm(t.getGasPpm());
+                        dto.setAccMagnitude(t.getAccMagnitude());
+                    });
+        }
+
         return dto;
     }
 
     @Transactional
-    public void updateOnlineStatus(String id, boolean isOnline) {
-        deviceRepository.findById(id).ifPresent(device -> {
+    public void updateOnlineStatus(String deviceUid, boolean isOnline) {
+        deviceRepository.findByDeviceUidAndDeletedAtIsNull(deviceUid).ifPresent(device -> {
             boolean changed = device.isOnline() != isOnline;
             device.setOnline(isOnline);
             if (isOnline) {
@@ -68,33 +147,28 @@ public class DeviceService {
             }
             deviceRepository.save(device);
 
+            // Cập nhật trạng thái Redis và bắn WebSocket
+            DeviceStateDto state = deviceStateService.updateDeviceState(deviceUid, s -> {
+                s.setOnline(isOnline);
+                if (isOnline) s.setLastSeenAt(Instant.now());
+            });
+
             if (changed) {
-                realtimePublisher.publishState(id, toDto(device));
+                realtimePublisher.publishState(deviceUid, state);
             }
         });
     }
 
     @Transactional
-    public void updateBuzzerState(String id, boolean buzzerOn) {
-        deviceRepository.findById(id).ifPresent(device -> {
+    public void updateBuzzerState(String deviceUid, boolean buzzerOn) {
+        deviceRepository.findByDeviceUidAndDeletedAtIsNull(deviceUid).ifPresent(device -> {
             device.setBuzzerOn(buzzerOn);
             deviceRepository.save(device);
-            realtimePublisher.publishState(id, toDto(device));
-        });
-    }
 
-    public DeviceStateDto toDto(Device d) {
-        DeviceStateDto dto = new DeviceStateDto();
-        dto.setId(d.getId());
-        dto.setName(d.getName());
-        dto.setZone(d.getZone());
-        dto.setOnline(d.isOnline());
-        dto.setWorn(d.isWorn());
-        dto.setBuzzerOn(d.isBuzzerOn());
-        dto.setLastSeenAt(d.getLastSeenAt());
-        dto.setLastLat(d.getLastLat());
-        dto.setLastLng(d.getLastLng());
-        dto.setCreatedAt(d.getCreatedAt());
-        return dto;
+            DeviceStateDto state = deviceStateService.updateDeviceState(deviceUid, s -> {
+                s.setBuzzerOn(buzzerOn);
+            });
+            realtimePublisher.publishState(deviceUid, state);
+        });
     }
 }

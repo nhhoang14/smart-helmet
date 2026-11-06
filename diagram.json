@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "author": "hoang",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-potentiometer", "id": "pot1", "top": -110, "left": 150, "attrs": {} },
+    { "type": "wokwi-buzzer", "id": "bz1", "top": -110, "left": 290, "attrs": { "volume": "0.1" } },
+    { "type": "wokwi-slide-switch", "id": "sw1", "top": 80, "left": 200, "attrs": {} }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "pot1:VCC", "esp:3V3", "red", [] ],
+    [ "pot1:GND", "esp:GND.1", "black", [] ],
+    [ "pot1:SIG", "esp:34", "green", [] ],
+    [ "bz1:1", "esp:GND.2", "black", [] ],
+    [ "bz1:2", "esp:25", "blue", [] ],
+    [ "sw1:1", "esp:3V3", "red", [] ],
+    [ "sw1:3", "esp:GND.1", "black", [] ],
+    [ "sw1:2", "esp:35", "orange", [] ]
+  ],
+  "dependencies": {}
+}

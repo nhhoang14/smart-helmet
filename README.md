@@ -1,4 +1,4 @@
-# Hệ Thống Cảnh Báo Khí Gas & Chất Lượng Không Khí (ESP32 DevKit V1 + MQ-135)
+# Hệ Thống Cảnh Báo Khí Gas & Định Vị GPS (ESP32 DevKit V1 + MQ-135)
 
 Dự án mẫu chuẩn kiến trúc mô-đun (modular), non-blocking (không sử dụng `delay()` gây đơ chương trình), tích hợp bộ lọc chống nhiễu ADC và máy trạng thái đa tầng (State Machine).
 
@@ -18,10 +18,8 @@ Dự án mẫu chuẩn kiến trúc mô-đun (modular), non-blocking (không s�
         |  [GPIO 25]  ----------------> (+) Còi Buzzer  |
         |  [GND]      ----------------> (-) Còi Buzzer  |
         |                                               |
-        |  [GPIO 18]  ----> [R 220Ω] -> (+) LED Xanh    |
-        |  [GPIO 19]  ----> [R 220Ω] -> (+) LED Vàng    |
-        |  [GPIO 21]  ----> [R 220Ω] -> (+) LED Đỏ      |
-        |  [GND]      ----------------> (-) Các LED     |
+        |  [GPIO 16]  <---------------- TX (NEO-6M)    |
+        |  [GPIO 17]  ----------------> RX (NEO-6M)    |
         +-----------------------------------------------+
 ```
 
@@ -35,9 +33,8 @@ Dự án mẫu chuẩn kiến trúc mô-đun (modular), non-blocking (không s�
 | **MQ-135** | **DO (Digital Out)**| **GPIO 35** | Nhận tín hiệu so sánh ngưỡng từ IC LM393 trên module (có thể dùng hoặc bỏ trống). |
 | **Active Buzzer** | Chân dương (+) | **GPIO 25** | Còi báo động dạng Active (chỉ cần cấp mức HIGH là kêu). |
 | **Active Buzzer** | Chân âm (-) | **GND** | Nối mass. |
-| **LED Xanh lá** | Anode (+) | **GPIO 18** | Qua điện trở 220Ω - Báo trạng thái **An toàn**. |
-| **LED Vàng** | Anode (+) | **GPIO 19** | Qua điện trở 220Ω - Báo trạng thái **Cảnh báo**. |
-| **LED Đỏ** | Anode (+) | **GPIO 21** | Qua điện trở 220Ω - Báo trạng thái **Nguy hiểm**. |
+| **NEO-6M GPS** | TX | **GPIO 16 (RX2)** | UART2, tốc độ 9600 baud. |
+| **NEO-6M GPS** | RX | **GPIO 17 (TX2)** | Có thể bỏ trống nếu chỉ nhận tọa độ. |
 
 ---
 
@@ -47,7 +44,7 @@ Dự án mẫu chuẩn kiến trúc mô-đun (modular), non-blocking (không s�
    - Bộ ADC của ESP32 thường có độ nhiễu điện từ nhất định.
    - Code lấy trung bình 8-16 mẫu vi mô kết hợp lọc làm mượt số thực giúp giá trị khí đo được cực kỳ ổn định, không bị chập chờn báo ảo.
 2. **Cơ chế chống rung trạng thái (Hysteresis):**
-   - Tránh hiện tượng còi/LED bị bật/tắt liên tục khi nồng độ khí dao động mấp mé ngay ngưỡng báo động.
+   - Tránh hiện tượng còi bị bật/tắt liên tục khi nồng độ khí dao động mấp mé ngay ngưỡng báo động.
 3. **Non-blocking 100%:**
    - Dùng `millis()` thay vì `delay()`. Còi có thể phát chu kỳ bíp (ví dụ: bíp ngắt quãng ở mức Warning, hụ dồn dập ở mức Danger) trong khi cảm biến vẫn liên tục đọc mẫu thời gian thực.
 4. **Giai đoạn sấy cảm biến (Warm-up):**
@@ -57,12 +54,12 @@ Dự án mẫu chuẩn kiến trúc mô-đun (modular), non-blocking (không s�
 
 ## 3. Các Trạng Thái Hệ Thống
 
-| Trạng thái | Điều kiện kích hoạt | Đèn LED | Còi Buzzer |
-| :--- | :--- | :--- | :--- |
-| **WARMING_UP** | 30 giây đầu sau khi bật nguồn | LED Vàng & Xanh chớp luân phiên | Tắt hoàn toàn |
-| **SAFE** | `ADC < 1200` | LED Xanh sáng | Tắt |
-| **WARNING** | `1200 <= ADC < 2200` | LED Vàng sáng | Kêu ngắt quãng (150ms mỗi 1.5s) |
-| **DANGER** | `ADC >= 2200` hoặc chân `DO` kích hoạt | LED Đỏ chớp dồn dập (120ms) | Hụ dồn dập (120ms ON / 120ms OFF) |
+| Trạng thái | Điều kiện kích hoạt | Còi Buzzer |
+| :--- | :--- | :--- |
+| **WARMING_UP** | 30 giây đầu sau khi bật nguồn | Tắt hoàn toàn |
+| **SAFE** | `ADC < 1200` | Tắt |
+| **WARNING** | `1200 <= ADC < 2200` | Kêu ngắt quãng (150ms mỗi 1.5s) |
+| **DANGER** | `ADC >= 2200` hoặc chân `DO` kích hoạt | Hụ dồn dập (120ms ON / 120ms OFF) |
 
 ---
 
@@ -84,7 +81,7 @@ Dự án mẫu chuẩn kiến trúc mô-đun (modular), non-blocking (không s�
 
 ### Cách 1: Nạp bằng Arduino IDE
 1. Cài đặt board ESP32 trong Arduino IDE (`Tools` -> `Board` -> `esp32` -> `DOIT ESP32 DEVKIT V1`).
-2. Mở file [esp32_mq135_gas_alarm.ino](file:///Users/mac/.gemini/antigravity-ide/scratch/esp32_mq135_gas_alarm/esp32_mq135_gas_alarm.ino).
+2. Mở thư mục `src/` trong PlatformIO hoặc Arduino IDE và nạp chương trình từ `src/main.cpp`.
 3. Nhấn nút **Upload** và mở **Serial Monitor** ở tốc độ **115200 bps**.
 
 ### Cách 2: Nạp bằng PlatformIO
@@ -92,3 +89,16 @@ Dự án mẫu chuẩn kiến trúc mô-đun (modular), non-blocking (không s�
 pio run -t upload
 pio device monitor -b 115200
 ```
+
+## 6. Wi-Fi, MQTT và GPS
+
+Đặt `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_BROKER` và thông tin MQTT trong
+[src/config.h](src/config.h) trước khi nạp. Firmware gửi:
+
+- `helmet/{id}/telemetry` mỗi 2 giây, gồm giá trị khí và `lat`/`lng` khi NEO-6M có fix.
+- `helmet/{id}/event` khi chuyển sang `DANGER`, với loại `GAS_DANGER` và tọa độ GPS.
+- `helmet/{id}/status` với Last Will `{"online":false}`.
+
+Mất Wi-Fi/MQTT không ảnh hưởng đến còi. Tối đa 8 event được giữ trong hàng đợi
+RAM và gửi bù theo thứ tự khi kết nối lại; event `GAS_DANGER` không bị bỏ qua
+khi publish thất bại.

@@ -1,7 +1,7 @@
 package com.helmet.service;
 
 import com.helmet.model.Device;
-import com.helmet.model.DeviceSettings;
+import com.helmet.model.ThresholdSettings;
 import com.helmet.repository.DeviceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,14 +37,14 @@ public class OfflineWatchdog {
         Instant now = Instant.now();
 
         for (Device device : onlineDevices) {
-            DeviceSettings settings = settingsService.getSettings(device.getId());
-            int timeoutSec = settings.getOfflineTimeoutSec();
+            ThresholdSettings settings = settingsService.getThresholds(device.getUid());
+            int timeoutSec = settings.getOfflineTimeoutSec() != null ? settings.getOfflineTimeoutSec() : 10;
 
             if (device.getLastSeenAt() == null ||
                 Duration.between(device.getLastSeenAt(), now).toSeconds() > timeoutSec) {
                 log.warn("Device {} has timed out (last seen: {}). Marking OFFLINE.",
-                        device.getId(), device.getLastSeenAt());
-                deviceService.updateOnlineStatus(device.getId(), false);
+                        device.getUid(), device.getLastSeenAt());
+                deviceService.updateOnlineStatus(device.getUid(), false);
                 alertService.createOfflineAlert(device);
             }
         }

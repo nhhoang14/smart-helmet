@@ -34,7 +34,7 @@ public class MqttClientService {
     @Value("${mqtt.password:}")
     private String password;
 
-    @Value("${mqtt.sub-topics:helmet/+/telemetry,helmet/+/event,helmet/+/status}")
+    @Value("${mqtt.sub-topics:helmet/device/+/telemetry,helmet/device/+/alert,helmet/device/+/status,helmet/device/+/state,helmet/+/telemetry,helmet/+/event,helmet/+/status}")
     private List<String> subTopics;
 
     private final MqttInboundHandler inboundHandler;

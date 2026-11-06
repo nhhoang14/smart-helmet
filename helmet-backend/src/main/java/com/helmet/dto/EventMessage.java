@@ -1,32 +1,54 @@
 package com.helmet.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
 
+import java.util.Map;
+
+@Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class EventMessage {
+
+    @JsonProperty("alert_type")
+    private String alertType;
+
     private String type;
+
+    private Double value;
+
+    private Map<String, Object> gps;
+
     private Double lat;
     private Double lng;
     private Long ts;
+    private Long timestamp;
 
-    public EventMessage() {}
-
-    public EventMessage(String type, Double lat, Double lng, Long ts) {
-        this.type = type;
-        this.lat = lat;
-        this.lng = lng;
-        this.ts = ts;
+    public String resolveType() {
+        if (alertType != null && !alertType.isBlank()) return alertType;
+        if (type != null && !type.isBlank()) return type;
+        return "FALL";
     }
 
-    public String getType() { return type; }
-    public void setType(String type) { this.type = type; }
+    public Double resolveLatitude() {
+        if (gps != null && gps.get("latitude") != null) {
+            Object val = gps.get("latitude");
+            if (val instanceof Number) return ((Number) val).doubleValue();
+        }
+        return lat;
+    }
 
-    public Double getLat() { return lat; }
-    public void setLat(Double lat) { this.lat = lat; }
+    public Double resolveLongitude() {
+        if (gps != null && gps.get("longitude") != null) {
+            Object val = gps.get("longitude");
+            if (val instanceof Number) return ((Number) val).doubleValue();
+        }
+        return lng;
+    }
 
-    public Double getLng() { return lng; }
-    public void setLng(Double lng) { this.lng = lng; }
-
-    public Long getTs() { return ts; }
-    public void setTs(Long ts) { this.ts = ts; }
+    public Long resolveTimestamp() {
+        if (timestamp != null) return timestamp;
+        if (ts != null) return ts;
+        return System.currentTimeMillis();
+    }
 }

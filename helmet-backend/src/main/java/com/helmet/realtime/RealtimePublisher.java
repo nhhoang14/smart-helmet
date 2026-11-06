@@ -16,18 +16,25 @@ public class RealtimePublisher {
         this.messagingTemplate = messagingTemplate;
     }
 
-    public void publishTelemetry(String deviceId, Object telemetry) {
-        String destination = "/topic/devices/" + deviceId + "/telemetry";
-        messagingTemplate.convertAndSend(destination, telemetry);
+    public void publishTelemetry(String deviceUid, Object telemetry) {
+        // Destination theo chuẩn smart-helmet-spec.md
+        messagingTemplate.convertAndSend("/topic/device/" + deviceUid, telemetry);
+        // Destination cho frontend hiện tại
+        messagingTemplate.convertAndSend("/topic/devices/" + deviceUid + "/telemetry", telemetry);
     }
 
-    public void publishState(String deviceId, DeviceStateDto state) {
-        String destination = "/topic/devices/" + deviceId + "/state";
-        messagingTemplate.convertAndSend(destination, state);
+    public void publishState(String deviceUid, DeviceStateDto state) {
+        // Destination theo chuẩn smart-helmet-spec.md
+        messagingTemplate.convertAndSend("/topic/device/" + deviceUid, state);
+        // Destination cho frontend hiện tại
+        messagingTemplate.convertAndSend("/topic/devices/" + deviceUid + "/state", state);
     }
 
     public void publishAlert(AlertDto alert) {
-        String destination = "/topic/alerts";
-        messagingTemplate.convertAndSend(destination, alert);
+        // Đẩy cảnh báo theo topic deviceUid và topic chung /topic/alerts
+        if (alert.getDeviceUid() != null) {
+            messagingTemplate.convertAndSend("/topic/device/" + alert.getDeviceUid(), alert);
+        }
+        messagingTemplate.convertAndSend("/topic/alerts", alert);
     }
 }

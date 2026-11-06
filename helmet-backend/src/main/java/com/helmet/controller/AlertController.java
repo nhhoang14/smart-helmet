@@ -1,6 +1,7 @@
 package com.helmet.controller;
 
 import com.helmet.dto.AlertDto;
+import com.helmet.dto.ApiResponse;
 import com.helmet.dto.EventMessage;
 import com.helmet.service.AlertService;
 import org.springframework.data.domain.Page;
@@ -8,7 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api")
+@CrossOrigin(origins = "*")
 public class AlertController {
 
     private final AlertService alertService;
@@ -17,7 +18,22 @@ public class AlertController {
         this.alertService = alertService;
     }
 
-    @GetMapping("/alerts")
+    // ==========================================
+    // 1. REST API CHUẨN V1 (THEO BẢNG 3.13 YÊU CẦU.MD)
+    // ==========================================
+
+    @PostMapping("/api/v1/alerts/{alertId}/ack")
+    public ApiResponse<AlertDto> acknowledgeAlertV1(@PathVariable Long alertId) {
+        return alertService.acknowledge(alertId, null)
+                .map(dto -> ApiResponse.success("Xác nhận sự cố thành công", dto))
+                .orElse(ApiResponse.error(404, "Không tìm thấy sự cố với id: " + alertId));
+    }
+
+    // ==========================================
+    // 2. ENDPOINTS TƯƠNG THÍCH FRONTEND HIỆN TẠI
+    // ==========================================
+
+    @GetMapping("/api/alerts")
     public Page<AlertDto> getAlerts(
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String status,
@@ -26,16 +42,22 @@ public class AlertController {
         return alertService.getAlerts(type, status, page, size);
     }
 
-    @PostMapping("/alerts/{id}/ack")
-    public ResponseEntity<AlertDto> acknowledgeAlert(@PathVariable Long id) {
+    @PostMapping("/api/alerts/{id}/ack")
+    public ResponseEntity<AlertDto> acknowledgeAlertLegacy(@PathVariable Long id) {
         return alertService.acknowledge(id, null)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @PostMapping("/devices/{id}/event")
+    @PostMapping("/api/devices/{id}/event")
     public ResponseEntity<Void> ingestEvent(@PathVariable String id, @RequestBody EventMessage msg) {
-        alertService.handleEvent(id, msg.getType(), msg.getLat(), msg.getLng());
+        alertService.handleEventWithValue(
+                id,
+                msg.resolveType(),
+                msg.getValue(),
+                msg.resolveLatitude(),
+                msg.resolveLongitude()
+        );
         return ResponseEntity.ok().build();
     }
 }

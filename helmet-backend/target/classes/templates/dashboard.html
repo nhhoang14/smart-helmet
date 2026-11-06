@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head}"></head>
+<body th:attr="data-device=${selectedUid}">
+<header th:replace="~{fragments/layout :: header}"></header>
+<aside th:replace="~{fragments/layout :: sidebar(${activeTab})}"></aside>
+<main class="content">
+    <div class="page-heading">
+        <div><p class="eyebrow">GIÁM SÁT REALTIME</p><h1>Tổng quan</h1><p class="muted">Theo dõi trạng thái an toàn của mũ bảo hộ và người lao động.</p></div>
+        <form class="device-picker" method="get" th:action="@{/dashboard}">
+            <label for="deviceUid">Thiết bị</label>
+            <select id="deviceUid" name="deviceUid" onchange="this.form.submit()">
+                <option th:each="device : ${devices}" th:value="${device.deviceUid}" th:text="${device.name + ' · ' + device.deviceUid}" th:selected="${device.deviceUid == selectedUid}"></option>
+            </select>
+        </form>
+    </div>
+    <div th:if="${devices.isEmpty()}" class="empty-state"><h2>Chưa có thiết bị</h2><p>Đăng ký mũ ESP32 đầu tiên để bắt đầu giám sát.</p><a class="button primary" th:href="@{/devices/new}">Đăng ký thiết bị</a></div>
+    <div th:if="${state != null}">
+        <section class="stats-grid">
+            <article class="stat-card"><strong id="gas-stat" th:text="${state.gasPpm != null ? #numbers.formatDecimal(state.gasPpm, 1, 0) : '0'}">0</strong><span>Nồng độ khí (ppm)</span></article>
+            <article class="stat-card"><strong th:text="${alertCount}">0</strong><span>Cảnh báo chưa xử lý</span></article>
+            <article class="stat-card"><strong id="worn-stat" th:text="${state.isWorn ? 'Đang đội' : 'Không đội'}">Không đội</strong><span>Tình trạng mũ</span></article>
+        </section>
+        <div class="status-band" id="status-band" th:classappend="${state.alertLevel == 'DANGER' ? ' danger' : state.alertLevel == 'WARNING' ? ' warning' : ''}">
+            <span class="status-dot"></span><strong id="status-text" th:text="${state.alertLevel == 'DANGER' ? 'NGUY HIỂM' : state.alertLevel == 'WARNING' ? 'CẢNH BÁO' : 'AN TOÀN'}">AN TOÀN</strong>
+            <span>Trạng thái hiện tại của <b th:text="${state.name}">mũ</b></span>
+            <span class="status-time" th:if="${state.lastSeenAt != null}" th:text="${#temporals.format(state.lastSeenAt, 'dd/MM/yyyy HH:mm:ss')}"></span>
+        </div>
+        <section class="dashboard-grid">
+            <div class="main-column">
+                <article class="card">
+                    <div class="card-heading"><h2>Nồng độ khí MQ-135</h2><span class="live-label"><i></i> LIVE</span></div>
+                    <div class="gauge-row">
+                        <div class="gauge" id="gas-gauge" th:style="'--gauge:' + ${state.gasPpm != null ? (state.gasPpm > 600 ? 100 : state.gasPpm / 6.0) : 0} + '%'"><div><strong id="gas-value" th:text="${state.gasPpm != null ? #numbers.formatDecimal(state.gasPpm, 1, 0) : '0'}">0</strong><small>ppm</small></div></div>
+                        <div class="thresholds"><p><span class="legend safe"></span>An toàn <b th:text="${threshold != null ? threshold.gasWarn : 300}">300</b> ppm</p><p><span class="legend warning"></span>Cảnh báo <b th:text="${threshold != null ? threshold.gasDanger : 600}">600</b> ppm</p><p><span class="legend danger"></span>Nguy hiểm</p></div>
+                    </div>
+                </article>
+                <article class="card air-quality-card">
+                    <div class="card-heading">
+                        <div><h2>Chất lượng không khí</h2><p class="card-subtitle">Nồng độ khí MQ-135 theo thời gian thực</p></div>
+                        <span class="air-quality-value" id="air-quality-value">-- <small>PPM</small></span>
+                    </div>
+                    <div class="air-quality-chart">
+                        <canvas id="air-quality-chart" aria-label="Biểu đồ chất lượng không khí realtime"></canvas>
+                        <p class="chart-empty" id="air-quality-empty">Chưa có dữ liệu chất lượng không khí</p>
+                    </div>
+                </article>
+                <article class="card">
+                    <div class="card-heading"><h2>Vị trí mũ</h2><a class="text-link" th:href="@{/history(deviceUid=${selectedUid})}">Xem lịch sử →</a></div>
+                    <div class="map-placeholder"><span class="map-pin">●</span><strong th:text="${state.lastLat != null ? state.lastLat + ', ' + state.lastLng : 'Chưa có tọa độ GPS'}">Chưa có tọa độ GPS</strong><small th:text="${state.gps != null and state.gps['fix'] == true ? 'GPS đã định vị' : 'Đang chờ tín hiệu GPS'}">Đang chờ tín hiệu GPS</small></div>
+                </article>
+                <article class="card">
+                    <div class="card-heading"><h2>Cảnh báo gần đây</h2><a class="text-link" th:href="@{/alerts}">Xem tất cả →</a></div>
+                    <div th:if="${recentAlerts.isEmpty()}" class="muted empty-inline">Chưa có cảnh báo mới.</div>
+                    <div th:each="alert : ${recentAlerts}" class="alert-row">
+                        <span class="severity" th:classappend="${alert.severity.name() == 'DANGER' ? ' danger' : ' warning'}" th:text="${alert.severity.name() == 'DANGER' ? '!' : '△'}">!</span>
+                        <div><strong th:text="${alert.message}">Cảnh báo</strong><small th:text="${#temporals.format(alert.occurredAt, 'dd/MM/yyyy HH:mm')}">Thời gian</small></div>
+                        <form th:if="${alert.status.name() == 'NEW'}" method="post" th:action="@{/alerts/{id}/ack(id=${alert.id})}"><button class="button small" type="submit">Xác nhận</button></form>
+                    </div>
+                </article>
+            </div>
+            <aside class="side-column">
+                <article class="card">
+                    <div class="card-heading"><h2>Trạng thái thiết bị</h2><span id="online-chip" class="online-chip" th:classappend="${state.isOnline ? '' : ' offline'}" th:text="${state.isOnline ? 'ONLINE' : 'OFFLINE'}">OFFLINE</span></div>
+                    <dl class="details"><div><dt>Mã thiết bị</dt><dd th:text="${state.deviceUid}">HELMET_001</dd></div><div><dt>Người sử dụng</dt><dd th:text="${state.workerName != null and !#strings.isEmpty(state.workerName) ? state.workerName : 'Chưa gán'}">Chưa gán</dd></div><div><dt>Còi tìm mũ</dt><dd id="buzzer-state" th:text="${state.buzzerOn ? 'Đang bật' : 'Đang tắt'}">Đang tắt</dd></div></dl>
+                </article>
+                <article class="card command-card"><h2>Điều khiển còi</h2><p class="muted">Phát âm thanh để tìm mũ bảo hộ.</p>
+                    <form method="post" th:action="@{/devices/{uid}/buzzer(uid=${selectedUid})}"><input type="hidden" name="on" th:value="${!state.buzzerOn}"><button class="button primary full" type="submit" th:text="${state.buzzerOn ? 'Tắt còi' : 'Bật còi'}">Bật còi</button></form>
+                </article>
+                <article class="card fall-card"><div class="card-heading"><h2>Phát hiện té ngã</h2><span class="fall-icon">✓</span></div><strong>Bình thường</strong><p class="muted">MPU6050 · ngưỡng <span th:text="${threshold != null ? threshold.fallSensitivity : 2.5}">2.5</span>g</p></article>
+            </aside>
+        </section>
+    </div>
+</main>
+<script th:src="@{/js/dashboard.js}"></script>
+</body>
+</html>

@@ -9,17 +9,27 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-import java.util.Optional;
 
 @Repository
 public interface AlertRepository extends JpaRepository<Alert, Long> {
-    List<Alert> findByDeviceIdAndStatusAndType(String deviceId, AlertStatus status, AlertType type);
-    Optional<Alert> findTop1ByDeviceIdAndTypeOrderByCreatedAtDesc(String deviceId, AlertType type);
 
-    Page<Alert> findAllByOrderByCreatedAtDesc(Pageable pageable);
-    Page<Alert> findByStatusOrderByCreatedAtDesc(AlertStatus status, Pageable pageable);
-    Page<Alert> findByTypeOrderByCreatedAtDesc(AlertType type, Pageable pageable);
-    Page<Alert> findByStatusAndTypeOrderByCreatedAtDesc(AlertStatus status, AlertType type, Pageable pageable);
+    List<Alert> findByDeviceUidAndStatusAndType(String deviceUid, AlertStatus status, AlertType type);
+
+    List<Alert> findByDeviceUidOrderByOccurredAtDesc(String deviceUid);
+
+    Page<Alert> findByTypeAndStatus(AlertType type, AlertStatus status, Pageable pageable);
+
+    Page<Alert> findByType(AlertType type, Pageable pageable);
+
+    Page<Alert> findByStatus(AlertStatus status, Pageable pageable);
+
+    default List<Alert> findByDeviceIdAndStatusAndType(String deviceId, AlertStatus status, AlertType type) {
+        return findByDeviceUidAndStatusAndType(deviceId, status, type);
+    }
 
     long countByStatus(AlertStatus status);
+
+    default List<Alert> findByDeviceIdOrderByCreatedAtDesc(String deviceId) {
+        return findByDeviceUidOrderByOccurredAtDesc(deviceId);
+    }
 }
