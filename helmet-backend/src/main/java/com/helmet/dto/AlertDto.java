@@ -41,6 +41,9 @@ public class AlertDto {
     private Double lat;
     private Double lng;
 
+    @JsonProperty("location_source")
+    private String locationSource;
+
     private AlertStatus status;
 
     @JsonProperty("occurred_at")

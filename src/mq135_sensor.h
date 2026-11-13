@@ -22,6 +22,7 @@ public:
     int getRawADC() const;
     float getFilteredADC() const;
     float getVoltage() const;
+    float getPpm() const;
 
     // Trả về true nếu chân DO (digital) kích hoạt (active LOW thông thường trên module MQ)
     bool isDigitalTriggered() const;

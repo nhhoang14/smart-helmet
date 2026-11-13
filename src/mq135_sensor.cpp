@@ -4,20 +4,7 @@
  */
 
 #include "mq135_sensor.h"
-
-static int readRawAdc() {
-#if SIMULATE_SENSOR
-    // Sóng tam giác chu kỳ 40s: 0 -> 3200 trong 20s, rồi giảm về 0 trong 20s
-    const unsigned long period = 40000UL;
-    unsigned long t = millis() % period;
-    float ratio = (t < period / 2) ? (t / (period / 2.0f))
-                                   : (1.0f - (t - period / 2) / (period / 2.0f));
-    int value = (int)(ratio * 3200.0f) + random(-80, 80);   // thêm nhiễu ngẫu nhiên
-    return constrain(value, 0, 4095);
-#else
-    return analogRead(PIN_MQ135_ANALOG);
-#endif
-}
+#include <math.h>
 
 MQ135Sensor::MQ135Sensor(uint8_t analogPin, uint8_t digitalPin)
     : _analogPin(analogPin),
@@ -107,8 +94,20 @@ float MQ135Sensor::getVoltage() const {
     return _voltage;
 }
 
+float MQ135Sensor::getPpm() const {
+    const float sensorVoltage = _voltage * MQ135_VOLTAGE_DIVIDER_GAIN;
+    if (sensorVoltage <= 0.02f) return 50.0f;
+    if (sensorVoltage >= MQ135_CIRCUIT_VOLTAGE) return 10000.0f;
+
+    const float sensorResistance = MQ135_RL_KOHM
+            * (MQ135_CIRCUIT_VOLTAGE - sensorVoltage) / sensorVoltage;
+    const float ratio = sensorResistance / MQ135_R0_KOHM;
+    float ppm = 116.6020682f * powf(ratio, -2.769034857f);
+    return constrain(ppm, 10.0f, 10000.0f);
+}
+
 bool MQ135Sensor::isDigitalTriggered() const {
     if (_digitalPin == 255) return false;
     // Module MQ thường có ngõ ra DO với LM393: Mức LOW khi vượt ngưỡng chỉnh bằng biến trở
-    return (digitalRead(_digitalPin) == LOW);
+    return digitalRead(_digitalPin) == LOW;
 }

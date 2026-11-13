@@ -10,25 +10,24 @@
 </head>
 <header th:fragment="header" class="topbar">
     <a class="brand" th:href="@{/dashboard}">
-        <span class="brand-mark">SH</span>
+        <img class="brand-mark" th:src="@{/favicon.svg}" alt="Smart Helmet Logo" width="38" height="38">
         <span>
             <strong>Smart Helmet</strong>
             <small>Giám sát an toàn công trường</small>
         </span>
     </a>
-    <div class="topbar-actions"><div class="topbar-status">Hệ thống đang hoạt động</div><form method="post" th:action="@{/logout}"><button class="link-button" type="submit">Đăng xuất</button></form></div>
+    <div class="topbar-actions"><form method="post" th:action="@{/logout}"><button class="link-button" type="submit">Đăng xuất</button></form></div>
 </header>
 
 <aside th:fragment="sidebar(activeTab)" class="sidebar">
     <nav class="nav">
         <a th:classappend="${activeTab == 'dashboard'} ? ' active'" th:href="@{/dashboard}">Tổng quan</a>
         <a th:classappend="${activeTab == 'devices'} ? ' active'" th:href="@{/devices}">Thiết bị</a>
-        <a th:classappend="${activeTab == 'alerts'} ? ' active'" th:href="@{/alerts}">Cảnh báo</a>
+        <a th:classappend="${activeTab == 'alerts'} ? ' active'" th:href="@{/alerts}">Cảnh báo <span class="nav-badge" id="nav-alert-badge"></span></a>
         <a th:classappend="${activeTab == 'history'} ? ' active'" th:href="@{/history}">Lịch sử dữ liệu</a>
         <a th:classappend="${activeTab == 'settings'} ? ' active'" th:href="@{/settings}">Cấu hình</a>
         <a th:classappend="${activeTab == 'users'} ? ' active'" th:href="@{/users}">Tài khoản</a>
     </nav>
-    <div class="sidebar-footer">ESP32 · MQTT · Spring Boot</div>
 </aside>
 
 <footer th:fragment="footer" class="footer">Smart Helmet · Hệ thống giám sát khí độc và phát hiện té ngã</footer>

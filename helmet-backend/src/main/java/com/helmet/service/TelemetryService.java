@@ -63,7 +63,6 @@ public class TelemetryService {
             return;
         }
 
-        boolean wasOffline = !device.isOnline();
         device.setOnline(true);
         device.setLastSeenAt(now);
 
@@ -98,6 +97,7 @@ public class TelemetryService {
             if (lat != null) gps.put("latitude", lat);
             if (lng != null) gps.put("longitude", lng);
             gps.put("fix", gpsFix);
+            gps.put("source", msg.resolveLocationSource());
             s.setGps(gps);
         });
 
@@ -123,12 +123,10 @@ public class TelemetryService {
             lastSavedTimeMap.put(deviceUid, now);
         }
 
-        // 6. Phát trạng thái mới qua WebSocket (Mục 3.7.2 bước 7)
+        // 6. Phát dữ liệu và trạng thái mới qua WebSocket (Mục 3.7.2 bước 7).
+        // State phải được phát ở mỗi mẫu để dashboard nhận alertLevel vừa đánh giá.
         realtimePublisher.publishTelemetry(deviceUid, msg);
-
-        if (wasOffline) {
-            realtimePublisher.publishState(deviceUid, state);
-        }
+        realtimePublisher.publishState(deviceUid, deviceStateService.getDeviceState(deviceUid));
     }
 
     private void saveTelemetryRecord(Device device, Double gas, Double acc, Boolean isWorn,

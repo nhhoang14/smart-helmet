@@ -6,7 +6,7 @@
 
 #ifndef CONFIG_H
 #define CONFIG_H
-#define SIMULATE_SENSOR 1
+#define SIMULATE_SENSOR 0
 
 #include <Arduino.h>
 
@@ -27,15 +27,14 @@
 #define PIN_GPS_TX          17      // TX2 nối RX của NEO-6M
 #define GPS_BAUD_RATE       9600
 
-// Cảm ứng điện dung nhận biết đội mũ (Touch Pin)
-#define PIN_TOUCH_WORN      4       // Touch0 (T0 - GPIO4) nối tấm dẫn điện trong vành mũ
+// Công tắc nhận biết đội mũ / Nút nhấn khẩn cấp SOS
+// Hỗ trợ công tắc hành trình KW11-3Z-2 (GPIO4) và nút SOS (GPIO27)
+#define PIN_TOUCH_WORN      4       // KW11 COM -> GND, NO -> GPIO4 (INPUT_PULLUP)
+#define PIN_SOS_BUTTON      27      // GPIO27 nối nút nhấn vật lý, đầu kia nối GND (INPUT_PULLUP)
 #define TOUCH_THRESHOLD     40      // < 40 là đang đội mũ, > 50 là tháo mũ
 
-// Nút nhấn khẩn cấp SOS và xác nhận an toàn
-#define PIN_SOS_BUTTON      27      // GPIO27 nối nút nhấn vật lý, đầu kia nối GND (INPUT_PULLUP)
-
 // Thiết bị phát âm thanh cảnh báo (Active Buzzer)
-#define PIN_BUZZER          25      // GPIO25 điều khiển còi báo động
+#define PIN_BUZZER          25      // GPIO25 điều khiển còi báo động (HIGH = kêu, LOW = tắt)
 
 // ==========================================
 // 2. KẾT NỐI MẠNG & MQTT (Mục 3.4)
@@ -52,39 +51,52 @@
 // Cấu trúc topic MQTT (Bảng 3.5)
 #define TOPIC_TELEMETRY     "helmet/device/" DEVICE_UID "/telemetry"
 #define TOPIC_ALERT         "helmet/device/" DEVICE_UID "/alert"
+#define TOPIC_EVENT         "helmet/device/" DEVICE_UID "/event"
 #define TOPIC_STATUS        "helmet/device/" DEVICE_UID "/status"
 #define TOPIC_STATE         "helmet/device/" DEVICE_UID "/state"
 #define TOPIC_COMMAND       "helmet/device/" DEVICE_UID "/command"
 
 #define MQTT_RECONNECT_INTERVAL_MS 5000UL
-#define TELEMETRY_INTERVAL_MS      5000UL  // Định kỳ 5 giây theo yêu cầu F01 Bảng 3.1
+#define TELEMETRY_INTERVAL_MS      3000UL  // Định kỳ 3 giây gửi telemetry
 #define EVENT_QUEUE_CAPACITY       8
 
 // ==========================================
-// 3. CẤU HÌNH THỜI GIAN & LỌC TÍN HIỆU
+// 3. ĐỊNH VỊ DỰ PHÒNG DỰA THEO WI-FI (INDOOR)
 // ==========================================
-#define SENSOR_SAMPLE_INTERVAL_MS   100     // Chu kỳ đọc cảm biến (ms)
-#define SENSOR_WARMUP_SECONDS       30      // Thời gian sấy cảm biến lúc khởi động
-#define FILTER_ALPHA                0.15f   // Hệ số lọc làm mượt EMA (Exponential Moving Average)
+// Khi ở trong nhà hoặc NEO-6M chưa bắt được vệ tinh, sử dụng tọa độ Wi-Fi
+#define DEFAULT_WIFI_LAT            21.028511
+#define DEFAULT_WIFI_LNG            105.854167
 
 // ==========================================
-// 4. CẤU HÌNH NGƯỠNG CẢNH BÁO (Bảng 3.11)
+// 4. CẤU HÌNH THỜI GIAN & LỌC TÍN HIỆU
+// ==========================================
+#define SENSOR_SAMPLE_INTERVAL_MS   100     // Chu kỳ đọc cảm biến (ms)
+#define SENSOR_WARMUP_SECONDS       10      // Thời gian sấy cảm biến (10 giây)
+#define FILTER_ALPHA                0.15f   // Hệ số lọc làm mượt EMA (Exponential Moving Average)
+
+// Tham số quy đổi MQ-135
+#define MQ135_RL_KOHM               10.0f
+#define MQ135_R0_KOHM               76.63f
+#define MQ135_CIRCUIT_VOLTAGE       5.0f
+#define MQ135_VOLTAGE_DIVIDER_GAIN  1.0f
+
+// ==========================================
+// 5. CẤU HÌNH NGƯỠNG CẢNH BÁO (Bảng 3.11)
 // ==========================================
 #define GAS_WARN_PPM_DEFAULT        300.0f  // Ngưỡng khí cảnh báo (ppm)
 #define GAS_DANGER_PPM_DEFAULT      600.0f  // Ngưỡng khí nguy hiểm (ppm)
 #define GAS_HYSTERESIS_PPM          25.0f   // Khoảng đệm trễ hạ mức an toàn
 
-// Ngưỡng phát hiện té ngã (Không TinyML - dùng ngưỡng gia tốc đỉnh kết hợp bất động)
+// Ngưỡng phát hiện té ngã (gia tốc đỉnh)
 #define FALL_ACC_THRESHOLD_DEFAULT  2.5f    // Ngưỡng gia tốc va chạm đỉnh (g)
-#define FALL_INACTIVITY_SEC_DEFAULT 15      // Thời gian bất động xác nhận ngã (giây)
 
-// Ngưỡng ADC cũ để tương thích
+// Ngưỡng ADC để tương thích dự phòng
 #define ADC_THRESHOLD_WARNING       1200
 #define ADC_THRESHOLD_DANGER        2200
 #define ADC_HYSTERESIS              50
 
 // ==========================================
-// 5. ĐỊNH NGHĨA TRẠNG THÁI HỆ THỐNG
+// 6. ĐỊNH NGHĨA TRẠNG THÁI HỆ THỐNG
 // ==========================================
 enum SystemState {
     STATE_WARMING_UP,   // Đang sấy cảm biến

@@ -72,9 +72,11 @@ public class MqttInboundHandler {
                     alertService.handleEventWithValue(
                             deviceId,
                             msg.resolveType(),
-                            msg.getValue(),
+                            msg.resolveValue(),
                             msg.resolveLatitude(),
-                            msg.resolveLongitude()
+                            msg.resolveLongitude(),
+                            msg.getMessage(),
+                            msg.resolveLocationSource()
                     );
                     break;
                 }

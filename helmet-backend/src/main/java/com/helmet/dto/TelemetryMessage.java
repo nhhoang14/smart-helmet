@@ -31,6 +31,9 @@ public class TelemetryMessage {
     private Double lng;
     private Long ts;
 
+    @JsonProperty("location_source")
+    private String locationSource;
+
     @JsonProperty("acc_magnitude")
     private Double flatAccMagnitude;
 
@@ -72,6 +75,16 @@ public class TelemetryMessage {
             if (val instanceof Boolean) return (Boolean) val;
         }
         return getLatitude() != null && getLongitude() != null;
+    }
+
+    public String resolveLocationSource() {
+        if (locationSource != null && !locationSource.isBlank()) {
+            return locationSource;
+        }
+        if (gps != null && gps.get("source") != null) {
+            return gps.get("source").toString();
+        }
+        return Boolean.TRUE.equals(getGpsFix()) ? "gps" : "wifi";
     }
 
     public Boolean getWornStatus() {

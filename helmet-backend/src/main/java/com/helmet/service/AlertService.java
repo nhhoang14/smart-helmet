@@ -5,6 +5,7 @@ import com.helmet.model.*;
 import com.helmet.mqtt.MqttCommandPublisher;
 import com.helmet.realtime.RealtimePublisher;
 import com.helmet.repository.AlertRepository;
+import com.helmet.repository.DeviceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -28,17 +29,20 @@ public class AlertService {
     private static final double GAS_HYSTERESIS_PPM = 25.0;
 
     private final AlertRepository alertRepository;
+    private final DeviceRepository deviceRepository;
     private final SettingsService settingsService;
     private final DeviceStateService deviceStateService;
     private final RealtimePublisher realtimePublisher;
     private final MqttCommandPublisher commandPublisher;
 
     public AlertService(AlertRepository alertRepository,
+                        DeviceRepository deviceRepository,
                         SettingsService settingsService,
                         DeviceStateService deviceStateService,
                         RealtimePublisher realtimePublisher,
                         @Lazy MqttCommandPublisher commandPublisher) {
         this.alertRepository = alertRepository;
+        this.deviceRepository = deviceRepository;
         this.settingsService = settingsService;
         this.deviceStateService = deviceStateService;
         this.realtimePublisher = realtimePublisher;
@@ -59,6 +63,7 @@ public class AlertService {
         double dangerThreshold = settings.getGasDanger() != null ? settings.getGasDanger() : 600.0;
 
         if (gasPpm >= dangerThreshold) {
+            deviceStateService.updateDeviceState(device.getUid(), state -> state.setAlertLevel("DANGER"));
             List<Alert> existing = alertRepository.findByDeviceUidAndStatusAndType(
                     device.getUid(), AlertStatus.NEW, AlertType.GAS_DANGER);
             if (existing.isEmpty()) {
@@ -68,6 +73,11 @@ public class AlertService {
                         msg, gasPpm, lat, lng);
             }
         } else if (gasPpm >= warnThreshold) {
+            deviceStateService.updateDeviceState(device.getUid(), state -> {
+                if (!"DANGER".equals(state.getAlertLevel())) {
+                    state.setAlertLevel("WARNING");
+                }
+            });
             List<Alert> existing = alertRepository.findByDeviceUidAndStatusAndType(
                     device.getUid(), AlertStatus.NEW, AlertType.GAS_WARNING);
             if (existing.isEmpty()) {
@@ -122,44 +132,55 @@ public class AlertService {
      */
     @Transactional
     public Alert handleEvent(String deviceUid, String eventType, Double lat, Double lng) {
-        return handleEventWithValue(deviceUid, eventType, null, lat, lng);
+        return handleEventWithValue(deviceUid, eventType, null, lat, lng, null, null);
     }
 
     @Transactional
     public Alert handleEventWithValue(String deviceUid, String eventType, Double value, Double lat, Double lng) {
+        return handleEventWithValue(deviceUid, eventType, value, lat, lng, null, null);
+    }
+
+    @Transactional
+    public Alert handleEventWithValue(String deviceUid, String eventType, Double value, Double lat, Double lng,
+                                      String customMessage, String locationSource) {
         AlertType type;
         AlertSeverity severity = AlertSeverity.DANGER;
         String msg;
 
         if ("GAS_DANGER".equalsIgnoreCase(eventType)) {
             type = AlertType.GAS_DANGER;
-            msg = "Cảnh báo nồng độ khí độc nguy hiểm phát hiện từ mũ!";
+            msg = (customMessage != null && !customMessage.isBlank()) ? customMessage : "Cảnh báo nồng độ khí độc nguy hiểm phát hiện từ mũ!";
         } else if ("GAS_WARNING".equalsIgnoreCase(eventType)) {
             type = AlertType.GAS_WARNING;
             severity = AlertSeverity.WARNING;
-            msg = "Cảnh báo nồng độ khí độc tăng cao!";
+            msg = (customMessage != null && !customMessage.isBlank()) ? customMessage : "Cảnh báo nồng độ khí độc tăng cao!";
         } else if ("SOS".equalsIgnoreCase(eventType)) {
             type = AlertType.SOS;
-            msg = "Tín hiệu SOS khẩn cấp được kích hoạt từ nút bấm trên vành mũ!";
+            msg = (customMessage != null && !customMessage.isBlank()) ? customMessage : "Tín hiệu SOS khẩn cấp được kích hoạt từ nút bấm trên vành mũ!";
         } else {
             type = AlertType.FALL;
-            msg = (value != null)
+            msg = (customMessage != null && !customMessage.isBlank()) ? customMessage : ((value != null)
                     ? String.format("Phát hiện té ngã tại công trường! Gia tốc đo được: %.2fg", value)
-                    : "Phát hiện sự cố té ngã tại công trường!";
+                    : "Phát hiện sự cố té ngã tại công trường!");
         }
 
-        return createAndPublishAlert(deviceUid, type, severity, msg, value, lat, lng);
+        return createAndPublishAlert(deviceUid, type, severity, msg, value, lat, lng, locationSource);
     }
 
     @Transactional
     public Alert createOfflineAlert(Device device) {
         String msg = "Mũ bảo hộ #" + device.getUid() + " (" + device.getName() + ") mất kết nối (Offline timeout).";
         return createAndPublishAlert(device.getUid(), AlertType.OFFLINE, AlertSeverity.WARNING,
-                msg, null, device.getLastLat(), device.getLastLng());
+                msg, null, device.getLastLat(), device.getLastLng(), null);
     }
 
     private Alert createAndPublishAlert(String deviceUid, AlertType type, AlertSeverity severity,
                                        String message, Double value, Double lat, Double lng) {
+        return createAndPublishAlert(deviceUid, type, severity, message, value, lat, lng, null);
+    }
+
+    private Alert createAndPublishAlert(String deviceUid, AlertType type, AlertSeverity severity,
+                                       String message, Double value, Double lat, Double lng, String locationSource) {
         Alert alert = Alert.builder()
                 .deviceUid(deviceUid)
                 .type(type)
@@ -175,12 +196,39 @@ public class AlertService {
         alert = alertRepository.save(alert);
 
         AlertDto dto = AlertDto.fromEntity(alert);
+        if (locationSource != null) {
+            dto.setLocationSource(locationSource);
+        }
 
         // Lưu vào Redis Hash: device:alert:active:{deviceUid}
         deviceStateService.addActiveAlert(deviceUid, dto);
 
+        // Cập nhật vị trí tức thời của thiết bị và deviceState
+        if (lat != null && lng != null) {
+            final Double finalLat = lat;
+            final Double finalLng = lng;
+            deviceRepository.findByDeviceUidAndDeletedAtIsNull(deviceUid).ifPresent(d -> {
+                d.setLastLat(finalLat);
+                d.setLastLng(finalLng);
+                deviceRepository.save(d);
+            });
+            deviceStateService.updateDeviceState(deviceUid, s -> {
+                s.setLastLat(finalLat);
+                s.setLastLng(finalLng);
+                if (severity == AlertSeverity.DANGER) {
+                    s.setAlertLevel("DANGER");
+                }
+                Map<String, Object> gps = s.getGps() != null ? s.getGps() : new HashMap<>();
+                gps.put("latitude", finalLat);
+                gps.put("longitude", finalLng);
+                if (locationSource != null) gps.put("source", locationSource);
+                s.setGps(gps);
+            });
+        }
+
         // Đẩy WebSocket tới Web Dashboard (Mục 3.7.3 bước 9)
         realtimePublisher.publishAlert(dto);
+        realtimePublisher.publishState(deviceUid, deviceStateService.getDeviceState(deviceUid));
 
         log.warn("Created and published alert [{} - {}]: {}", deviceUid, type, message);
         return alert;

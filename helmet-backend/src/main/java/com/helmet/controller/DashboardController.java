@@ -1,7 +1,6 @@
 package com.helmet.controller;
 
 import com.helmet.dto.AlertDto;
-import com.helmet.dto.CommandRequest;
 import com.helmet.dto.DeviceStateDto;
 import com.helmet.model.Device;
 import com.helmet.model.AlertStatus;
@@ -83,7 +82,7 @@ public class DashboardController {
                     .orElseGet(() -> ThresholdSettings.builder().deviceUid(dashboardDeviceUid).build()));
 
             List<AlertDto> recentAlerts = alertService.getDeviceAlerts(selectedUid);
-            int end = Math.min(5, recentAlerts.size());
+            int end = Math.min(20, recentAlerts.size());
             model.addAttribute("recentAlerts", recentAlerts.subList(0, end));
         }
 

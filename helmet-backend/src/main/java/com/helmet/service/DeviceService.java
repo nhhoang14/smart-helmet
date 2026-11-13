@@ -2,7 +2,6 @@ package com.helmet.service;
 
 import com.helmet.dto.DeviceStateDto;
 import com.helmet.model.Device;
-import com.helmet.model.Telemetry;
 import com.helmet.realtime.RealtimePublisher;
 import com.helmet.repository.DeviceRepository;
 import com.helmet.repository.TelemetryRepository;
