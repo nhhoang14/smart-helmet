@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head}"></head>
+<body><header th:replace="~{fragments/layout :: header}"></header><aside th:replace="~{fragments/layout :: sidebar(${activeTab})}"></aside>
+<main class="content"><div class="page-heading"><div><p class="eyebrow">QUẢN LÝ</p><h1>Tài khoản người dùng</h1><p class="muted">Tài khoản được lưu trong cơ sở dữ liệu.</p></div><a class="button primary" th:href="@{/users/new}">+ Tạo tài khoản</a></div>
+<div class="card table-card"><table><thead><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Email</th><th>Ngày tạo</th></tr></thead><tbody><tr th:each="user : ${users}"><td><strong th:text="${user.username}">admin</strong></td><td th:text="${user.fullName}">-</td><td th:text="${user.email}">-</td><td th:text="${#temporals.format(user.createdAt, 'dd/MM/yyyy HH:mm')}">-</td></tr><tr th:if="${users.isEmpty()}"><td colspan="4" class="empty-inline">Chưa có tài khoản.</td></tr></tbody></table></div></main></body>
+</html>

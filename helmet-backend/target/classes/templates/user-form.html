@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head}"></head>
+<body><header th:replace="~{fragments/layout :: header}"></header><aside th:replace="~{fragments/layout :: sidebar(${activeTab})}"></aside>
+<main class="content narrow"><div class="page-heading"><div><p class="eyebrow">TÀI KHOẢN</p><h1>Tạo tài khoản</h1><p class="muted">Mật khẩu sẽ được mã hóa trước khi lưu vào MySQL.</p></div></div>
+<form class="card form-card" method="post" th:action="@{/users/new}"><p class="error" th:if="${error}" th:text="${error}"></p><label>Tên đăng nhập<input name="username" required maxlength="50" autocomplete="username" th:value="${username}"></label><label>Mật khẩu<input type="password" name="password" required minlength="6" autocomplete="new-password"></label><label>Họ tên<input name="fullName" th:value="${fullName}"></label><label>Email<input type="email" name="email" th:value="${email}"></label><div class="form-actions"><a class="button" th:href="@{/users}">Hủy</a><button class="button primary" type="submit">Tạo tài khoản</button></div></form></main></body>
+</html>

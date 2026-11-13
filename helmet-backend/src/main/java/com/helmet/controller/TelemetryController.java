@@ -12,6 +12,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @RestController
+@CrossOrigin(origins = "*")
 @RequestMapping("/api/devices/{id}/telemetry")
 public class TelemetryController {
 

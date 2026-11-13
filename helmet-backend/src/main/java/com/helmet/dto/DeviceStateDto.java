@@ -1,52 +1,124 @@
 package com.helmet.dto;
 
-import java.time.Instant;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class DeviceStateDto {
+
+    @JsonProperty("device_uid")
+    private String deviceUid;
+
+    // Backward compatibility id alias
     private String id;
     private String name;
-    private String zone;
-    private boolean isOnline;
-    private boolean isWorn;
-    private boolean buzzerOn;
-    private Instant lastSeenAt;
-    private Double lastLat;
-    private Double lastLng;
+    private String workerName;
+
+    @Builder.Default
+    @JsonProperty("status")
+    private String status = "OFFLINE"; // ONLINE, OFFLINE
+
+    @Builder.Default
+    @JsonProperty("is_online")
+    private boolean isOnline = false;
+
+    @Builder.Default
+    @JsonProperty("is_worn")
+    private boolean isWorn = false;
+
+    @Builder.Default
+    @JsonProperty("alert_level")
+    private String alertLevel = "NORMAL"; // NORMAL, WARNING, DANGER
+
+    @Builder.Default
+    @JsonProperty("buzzer_state")
+    private String buzzerState = "OFF"; // ON, OFF
+
+    @Builder.Default
+    @JsonProperty("buzzer_on")
+    private boolean buzzerOn = false;
+
+    @JsonProperty("sensors")
+    @Builder.Default
+    private Map<String, Object> sensors = new HashMap<>();
+
+    @JsonProperty("gps")
+    @Builder.Default
+    private Map<String, Object> gps = new HashMap<>();
+
+    @JsonProperty("thresholds")
+    @Builder.Default
+    private Map<String, Object> thresholds = new HashMap<>();
+
+    @JsonProperty("gas_ppm")
     private Double gasPpm;
+
+    @Builder.Default
+    @JsonProperty("acc_magnitude")
+    private Double accMagnitude = 1.0;
+
+    @JsonProperty("last_lat")
+    private Double lastLat;
+
+    @JsonProperty("last_lng")
+    private Double lastLng;
+
+    @JsonProperty("last_seen_at")
+    private Instant lastSeenAt;
+
+    @JsonProperty("timestamp")
+    private Long timestamp;
+
+    @JsonProperty("created_at")
     private Instant createdAt;
 
-    public DeviceStateDto() {}
+    public String getId() {
+        return id != null ? id : deviceUid;
+    }
 
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
+    public void setId(String id) {
+        this.id = id;
+        if (this.deviceUid == null) {
+            this.deviceUid = id;
+        }
+    }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public void setDeviceUid(String deviceUid) {
+        this.deviceUid = deviceUid;
+        if (this.id == null) {
+            this.id = deviceUid;
+        }
+    }
 
-    public String getZone() { return zone; }
-    public void setZone(String zone) { this.zone = zone; }
+    public void setOnline(boolean online) {
+        this.isOnline = online;
+        this.status = online ? "ONLINE" : "OFFLINE";
+    }
 
-    public boolean isOnline() { return isOnline; }
-    public void setOnline(boolean online) { isOnline = online; }
+    public void setBuzzerOn(boolean buzzerOn) {
+        this.buzzerOn = buzzerOn;
+        this.buzzerState = buzzerOn ? "ON" : "OFF";
+    }
 
-    public boolean isWorn() { return isWorn; }
-    public void setWorn(boolean worn) { isWorn = worn; }
+    public void setBuzzerState(String buzzerState) {
+        this.buzzerState = buzzerState;
+        this.buzzerOn = "ON".equalsIgnoreCase(buzzerState);
+    }
 
-    public boolean isBuzzerOn() { return buzzerOn; }
-    public void setBuzzerOn(boolean buzzerOn) { this.buzzerOn = buzzerOn; }
-
-    public Instant getLastSeenAt() { return lastSeenAt; }
-    public void setLastSeenAt(Instant lastSeenAt) { this.lastSeenAt = lastSeenAt; }
-
-    public Double getLastLat() { return lastLat; }
-    public void setLastLat(Double lastLat) { this.lastLat = lastLat; }
-
-    public Double getLastLng() { return lastLng; }
-    public void setLastLng(Double lastLng) { this.lastLng = lastLng; }
-
-    public Double getGasPpm() { return gasPpm; }
-    public void setGasPpm(Double gasPpm) { this.gasPpm = gasPpm; }
-
-    public Instant getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public void setStatus(String status) {
+        this.status = status;
+        this.isOnline = "ONLINE".equalsIgnoreCase(status);
+    }
 }

@@ -18,52 +18,68 @@ public class CommandService {
 
     private final DeviceCommandRepository commandRepository;
     private final DeviceService deviceService;
+    private final DeviceStateService deviceStateService;
     private final MqttCommandPublisher commandPublisher;
     private final ObjectMapper objectMapper;
 
     public CommandService(DeviceCommandRepository commandRepository,
                           DeviceService deviceService,
+                          DeviceStateService deviceStateService,
                           MqttCommandPublisher commandPublisher,
                           ObjectMapper objectMapper) {
         this.commandRepository = commandRepository;
         this.deviceService = deviceService;
+        this.deviceStateService = deviceStateService;
         this.commandPublisher = commandPublisher;
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Gửi lệnh điều khiển chuẩn xuống ESP32 (Bảng 3.6 & Luồng 3.7.5)
+     */
     @Transactional
-    public boolean setBuzzer(String deviceId, boolean on) {
-        String cmdType = on ? "BUZZER_ON" : "BUZZER_OFF";
-        Map<String, Object> payloadMap = new HashMap<>();
-        payloadMap.put("cmd", "BUZZER");
-        payloadMap.put("on", on);
+    public boolean executeCommand(String deviceUid, String action, Map<String, Object> payload) {
+        if (payload == null) payload = new HashMap<>();
 
         String payloadJson = "{}";
         try {
-            payloadJson = objectMapper.writeValueAsString(payloadMap);
+            payloadJson = objectMapper.writeValueAsString(payload);
         } catch (Exception e) {
-            log.error("Failed to serialize command payload", e);
+            log.error("Failed to serialize payload: {}", e.getMessage());
         }
 
-        // Tạo bản ghi command trong DB
         DeviceCommand cmd = DeviceCommand.builder()
-                .deviceId(deviceId)
-                .commandType(cmdType)
+                .deviceId(deviceUid)
+                .commandType(action)
                 .payload(payloadJson)
                 .status("SENT")
                 .build();
         commandRepository.save(cmd);
 
-        // Cập nhật trạng thái thiết bị
-        deviceService.updateBuzzerState(deviceId, on);
+        // Xử lý các logic nội bộ tương ứng theo action
+        if ("FIND_HELMET".equalsIgnoreCase(action)) {
+            String state = String.valueOf(payload.getOrDefault("state", "ON"));
+            boolean on = "ON".equalsIgnoreCase(state);
+            deviceService.updateBuzzerState(deviceUid, on);
+            deviceStateService.updateDeviceState(deviceUid, s -> s.setBuzzerOn(on));
+        }
 
-        // Publish xuống MQTT
-        boolean published = commandPublisher.publishCommand(deviceId, payloadJson);
-        if (!published) {
+        // Gửi qua MQTT xuống mũ
+        boolean sent = commandPublisher.sendCommand(deviceUid, action, payload);
+        if (!sent) {
             cmd.setStatus("FAILED");
             commandRepository.save(cmd);
         }
+        return sent;
+    }
 
-        return true;
+    @Transactional
+    public boolean setBuzzer(String deviceId, boolean on) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("state", on ? "ON" : "OFF");
+        if (on) {
+            payload.put("time", 10); // Mặc định bật 10 giây theo tài liệu
+        }
+        return executeCommand(deviceId, "FIND_HELMET", payload);
     }
 }

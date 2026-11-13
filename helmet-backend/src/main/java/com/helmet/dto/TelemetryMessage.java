@@ -1,9 +1,29 @@
 package com.helmet.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
 
+import java.util.Map;
+
+@Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class TelemetryMessage {
+
+    // Định dạng lồng nhau theo chuẩn smart-helmet-spec.md
+    @JsonProperty("sensors")
+    private Map<String, Object> sensors;
+
+    @JsonProperty("gps")
+    private Map<String, Object> gps;
+
+    @JsonProperty("is_worn")
+    private Boolean isWorn;
+
+    @JsonProperty("timestamp")
+    private Long timestamp;
+
+    // Định dạng phẳng (hỗ trợ tương thích ngược)
     private Double gas;
     private Boolean worn;
     private Boolean fall;
@@ -11,32 +31,71 @@ public class TelemetryMessage {
     private Double lng;
     private Long ts;
 
-    public TelemetryMessage() {}
+    @JsonProperty("location_source")
+    private String locationSource;
 
-    public TelemetryMessage(Double gas, Boolean worn, Boolean fall, Double lat, Double lng, Long ts) {
-        this.gas = gas;
-        this.worn = worn;
-        this.fall = fall;
-        this.lat = lat;
-        this.lng = lng;
-        this.ts = ts;
+    @JsonProperty("acc_magnitude")
+    private Double flatAccMagnitude;
+
+    public Double getGasPpm() {
+        if (sensors != null && sensors.get("gas_ppm") != null) {
+            Object val = sensors.get("gas_ppm");
+            if (val instanceof Number) return ((Number) val).doubleValue();
+        }
+        return gas;
     }
 
-    public Double getGas() { return gas; }
-    public void setGas(Double gas) { this.gas = gas; }
+    public Double getAccMagnitude() {
+        if (sensors != null && sensors.get("acc_magnitude") != null) {
+            Object val = sensors.get("acc_magnitude");
+            if (val instanceof Number) return ((Number) val).doubleValue();
+        }
+        return flatAccMagnitude != null ? flatAccMagnitude : 1.0;
+    }
 
-    public Boolean getWorn() { return worn; }
-    public void setWorn(Boolean worn) { this.worn = worn; }
+    public Double getLatitude() {
+        if (gps != null && gps.get("latitude") != null) {
+            Object val = gps.get("latitude");
+            if (val instanceof Number) return ((Number) val).doubleValue();
+        }
+        return lat;
+    }
 
-    public Boolean getFall() { return fall; }
-    public void setFall(Boolean fall) { this.fall = fall; }
+    public Double getLongitude() {
+        if (gps != null && gps.get("longitude") != null) {
+            Object val = gps.get("longitude");
+            if (val instanceof Number) return ((Number) val).doubleValue();
+        }
+        return lng;
+    }
 
-    public Double getLat() { return lat; }
-    public void setLat(Double lat) { this.lat = lat; }
+    public Boolean getGpsFix() {
+        if (gps != null && gps.get("fix") != null) {
+            Object val = gps.get("fix");
+            if (val instanceof Boolean) return (Boolean) val;
+        }
+        return getLatitude() != null && getLongitude() != null;
+    }
 
-    public Double getLng() { return lng; }
-    public void setLng(Double lng) { this.lng = lng; }
+    public String resolveLocationSource() {
+        if (locationSource != null && !locationSource.isBlank()) {
+            return locationSource;
+        }
+        if (gps != null && gps.get("source") != null) {
+            return gps.get("source").toString();
+        }
+        return Boolean.TRUE.equals(getGpsFix()) ? "gps" : "wifi";
+    }
 
-    public Long getTs() { return ts; }
-    public void setTs(Long ts) { this.ts = ts; }
+    public Boolean getWornStatus() {
+        if (isWorn != null) return isWorn;
+        if (worn != null) return worn;
+        return true;
+    }
+
+    public Long getTimestampEpoch() {
+        if (timestamp != null) return timestamp;
+        if (ts != null) return ts;
+        return System.currentTimeMillis();
+    }
 }

@@ -1,32 +1,36 @@
 package com.helmet.model;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 
 import java.time.Instant;
 
 @Entity
+@Table(name = "devices", indexes = {
+    @Index(name = "idx_devices_uid", columnList = "device_uid", unique = true)
+})
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Table(name = "devices")
 public class Device {
 
     @Id
-    @Column(length = 32)
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "device_uid", nullable = false, unique = true, length = 100)
+    private String deviceUid;
+
+    @Column(nullable = false, length = 255)
     private String name;
 
-    @Column(length = 100)
-    private String zone;
+    @Column(name = "worker_name", length = 255)
+    private String workerName;
+
+    @Column(name = "user_id")
+    private Long userId;
 
     @Builder.Default
     @Column(name = "is_online", nullable = false)
@@ -52,4 +56,15 @@ public class Device {
     @Builder.Default
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
+
+    @Builder.Default
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt = Instant.now();
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    public String getUid() {
+        return deviceUid != null ? deviceUid : String.valueOf(id);
+    }
 }
