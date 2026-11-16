@@ -1033,14 +1033,14 @@ Sơ đồ khối phần cứng gồm khối nguồn (pin Li-ion và mạch cấp
 | MQ-135 | VCC / GND | 5V / GND |
 | MQ-135 (qua cầu phân áp) | AO → R1 → điểm giữa → R2 → GND | Điểm giữa → GPIO34 |
 | MPU6050 | VCC / GND / SDA / SCL | 3V3 / GND / GPIO21 / GPIO22 |
-| GPS NEO-6M | VCC / GND / TX / RX | 3V3 / GND / GPIO16 (RX2) / GPIO17 (TX2) |
-| Touch Pin (nhận biết đội mũ) | Tấm dẫn điện mặt trong mũ | GPIO4 (T0) |
-| Nút SOS | Một đầu / đầu còn lại | GPIO27 / GND |
-| Buzzer | (+) / (−) | GPIO25 / GND |
+| GPS NEO-6M | VCC / GND / TX / RX | VIN / GND / GPIO26 (RX2) / GPIO25 (TX2) |
+| Công tắc kích hoạt đo | C / NO | GND / GPIO14 |
+| Nút tắt còi | Một đầu / đầu còn lại | GPIO27 / GND |
+| Buzzer | (+) / (−) | GPIO13 / GND |
 
 ***![][image13]Hình 3.4. Sơ đồ nguyên lý kết nối mạch phần cứng***
 
-MQ-135 được cấp nguồn 5V, trong khi tín hiệu AO được đưa qua cầu phân áp R1–R2 trước khi kết nối với GPIO34 của ESP32 nhằm giới hạn điện áp đầu vào ở mức an toàn 3,3V. MPU6050 và GPS NEO-6M sử dụng nguồn 3,3V theo sơ đồ. Các khối trong hệ thống sử dụng chung GND với ESP32 để tạo mốc tham chiếu điện áp thống nhất và đảm bảo tín hiệu hoạt động ổn định.
+MQ-135 được cấp nguồn 5V, trong khi tín hiệu AO được đưa qua cầu phân áp 12 kOhm–22 kOhm trước khi kết nối với GPIO34 của ESP32 nhằm giới hạn điện áp đầu vào ở mức an toàn 3,3V. MPU6050 sử dụng nguồn 3,3V, còn GPS NEO-6M sử dụng VIN theo sơ đồ. Khi công tắc GPIO14 chưa bật, firmware không khởi tạo/đọc MQ-135 và GPS. Các khối trong hệ thống sử dụng chung GND với ESP32 để tạo mốc tham chiếu điện áp thống nhất và đảm bảo tín hiệu hoạt động ổn định.
 
 ## **3.4. Thiết kế giao tiếp MQTT** {#3.4.-thiết-kế-giao-tiếp-mqtt}
 

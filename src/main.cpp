@@ -32,7 +32,10 @@ bool hasWifiGeoLocation = false;
 
 // Trạng thái công tắc (KW11 / SOS) và debounce
 bool lastSwitchState = false;
+bool systemEnabled = false;
+bool lastButtonState = false;
 unsigned long lastDebounceTime = 0;
+unsigned long lastButtonDebounceTime = 0;
 const unsigned long DEBOUNCE_DELAY = 50;
 
 // Hàng đợi lưu trữ cảnh báo khi mất mạng
@@ -187,7 +190,7 @@ void publishTelemetry() {
     doc["gas"] = mq135.getPpm();
     doc["adc"] = (int)mq135.getFilteredADC();
     doc["voltage"] = mq135.getVoltage();
-    doc["worn"] = true;
+    doc["worn"] = systemEnabled;
     doc["fall"] = false;
     doc["lat"] = lat;
     doc["lng"] = lng;
@@ -242,52 +245,40 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
 // ==========================================
 
 bool isSwitchPressedRaw() {
-    // Chân công tắc nối GND, cấu hình INPUT_PULLUP (khi ấn là LOW)
-    // Hỗ trợ cả GPIO4 (KW11-3Z-2) và GPIO27 (nút SOS)
-    return (digitalRead(PIN_TOUCH_WORN) == LOW) || (digitalRead(PIN_SOS_BUTTON) == LOW);
+    // Công tắc nối GND: LOW nghĩa là hệ thống được bật.
+    return digitalRead(PIN_TOUCH_WORN) == LOW;
 }
 
-void onSwitchPressed() {
-    Serial.println();
-    Serial.println(F("=================================================="));
-    Serial.println(F("🔔 [SWITCH] CÔNG TẮC ĐƯỢC ẤN -> KÍCH HOẠT SOS!"));
-    Serial.println(F("=================================================="));
-
-    // 1. Phản hồi âm thanh còi (bíp xác nhận cho người đội mũ)
-    alarmCtrl.triggerBeep(250);
-
-    // 2. Lấy vị trí: ưu tiên GPS NEO-6M, nếu trong nhà thì lấy Wi-Fi
-    double lat, lng;
-    String source;
-    bool isFix;
-    getCurrentLocation(lat, lng, source, isFix);
-
-    Serial.printf("[SWITCH] Tọa độ: lat=%.6f, lng=%.6f | Nguồn định vị: %s\n",
-                  lat, lng, (source == "gps" ? "GPS NEO-6M (Ngoài trời)" : "Wi-Fi (Trong nhà)"));
-
-    // 3. Gửi sự kiện SOS khẩn cấp về backend
-    const char* alertMsg = "Nút khẩn cấp SOS trên mũ đã được bấm!";
-    if (!publishAlertEvent("SOS", alertMsg)) {
-        enqueueEvent("SOS", alertMsg);
-    }
-
-    // 4. Cập nhật ngay bản tin telemetry
-    publishTelemetry();
-}
-
-void checkSwitch() {
+void checkControls() {
     bool reading = isSwitchPressedRaw();
     unsigned long now = millis();
 
-    if (reading != lastSwitchState) {
-        if ((now - lastDebounceTime) > DEBOUNCE_DELAY) {
-            lastSwitchState = reading;
-            lastDebounceTime = now;
+    if (reading != lastSwitchState && (now - lastDebounceTime) > DEBOUNCE_DELAY) {
+        lastSwitchState = reading;
+        lastDebounceTime = now;
+        systemEnabled = reading;
 
-            if (reading) {
-                // Nhấn công tắc
-                onSwitchPressed();
-            }
+        if (systemEnabled) {
+            mq135.begin();
+            gpsSerial.begin(GPS_BAUD_RATE, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+            currentState = STATE_WARMING_UP;
+            alarmCtrl.setState(STATE_WARMING_UP);
+            Serial.println(F("[SYSTEM] Công tắc bật: bắt đầu đo cảm biến."));
+        } else {
+            currentState = STATE_SAFE;
+            alarmCtrl.setState(STATE_SAFE);
+            Serial.println(F("[SYSTEM] Công tắc tắt: dừng đo cảm biến."));
+        }
+    }
+
+    bool buttonPressed = digitalRead(PIN_SOS_BUTTON) == LOW;
+    if (buttonPressed != lastButtonState &&
+        (now - lastButtonDebounceTime) > DEBOUNCE_DELAY) {
+        lastButtonState = buttonPressed;
+        lastButtonDebounceTime = now;
+        if (buttonPressed && systemEnabled) {
+            alarmCtrl.silence();
+            Serial.println(F("[BUTTON] Đã tắt còi."));
         }
     }
 }
@@ -362,9 +353,7 @@ void setup() {
     pinMode(PIN_SOS_BUTTON, INPUT_PULLUP);
 
     // Khởi tạo cảm biến và còi
-    mq135.begin();
     alarmCtrl.begin();
-    gpsSerial.begin(GPS_BAUD_RATE, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
 
     // Cấu hình MQTT
     mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
@@ -372,27 +361,27 @@ void setup() {
     mqttClient.setBufferSize(512);
     WiFi.setAutoReconnect(true);
 
-    // Bíp test còi lúc khởi động
-    alarmCtrl.triggerBeep(100);
-    delay(150);
-    alarmCtrl.triggerBeep(100);
-
-    Serial.println(F("[INFO] Bắt đầu khởi động hệ thống và sấy cảm biến MQ-135..."));
+    Serial.println(F("[INFO] Đang chờ bật công tắc để bắt đầu đo cảm biến..."));
 }
 
 void loop() {
     // 1. Đọc luồng GPS NMEA từ UART2
-    readGps();
+    checkControls();
+
+    if (systemEnabled) {
+        readGps();
+    }
 
     // 2. Cập nhật cảm biến khí MQ-135 và còi
-    mq135.update();
+    if (systemEnabled) {
+        mq135.update();
+    }
     alarmCtrl.update();
 
-    // 3. Quét kiểm tra công tắc (KW11 / SOS)
-    checkSwitch();
-
     // 4. Duy trì kết nối Wi-Fi và MQTT
-    connectNetwork();
+    if (systemEnabled) {
+        connectNetwork();
+    }
     if (mqttClient.connected()) {
         mqttClient.loop();
         flushEventQueue();
@@ -401,7 +390,9 @@ void loop() {
     // 5. Đánh giá ngưỡng nồng độ khí độc & điều khiển còi
     SystemState previousState = currentState;
 
-    if (!mq135.isWarmedUp()) {
+    if (!systemEnabled) {
+        currentState = STATE_SAFE;
+    } else if (!mq135.isWarmedUp()) {
         currentState = STATE_WARMING_UP;
     } else {
         float currentPpm = mq135.getPpm();
@@ -443,7 +434,9 @@ void loop() {
     unsigned long now = millis();
     if (now - lastTelemetryPublish >= TELEMETRY_INTERVAL_MS) {
         lastTelemetryPublish = now;
-        publishTelemetry();
+        if (systemEnabled) {
+            publishTelemetry();
+        }
     }
 
     // 7. Định kỳ in log trạng thái ra Serial Monitor (mỗi 1 giây)
@@ -466,7 +459,13 @@ void loop() {
             default:               Serial.print(F("UNKNOWN")); break;
         }
 
-        if (!mq135.isWarmedUp()) {
+        if (!systemEnabled) {
+            Serial.print(F(" | PPM: "));
+            Serial.print(mq135.getPpm(), 1);
+            Serial.print(F(" | Công tắc: TẮT"));
+        } else if (!mq135.isWarmedUp()) {
+            Serial.print(F(" | PPM: "));
+            Serial.print(mq135.getPpm(), 1);
             Serial.print(F(" | Còn sấy: "));
             Serial.print(mq135.getRemainingWarmupTime());
             Serial.println(F("s..."));
@@ -489,7 +488,7 @@ void loop() {
                 Serial.print(F(" vệ tinh)"));
             }
             Serial.print(F(" | Công tắc: "));
-            Serial.print(isSwitchPressedRaw() ? F("ẤN") : F("NHẢ"));
+            Serial.print(isSwitchPressedRaw() ? F("BẬT") : F("TẮT"));
             Serial.println();
         }
     }

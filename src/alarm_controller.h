@@ -16,6 +16,7 @@ public:
     void begin();
     void setState(SystemState newState);
     void update();
+    void silence();
 
     // Cho phép kích hoạt tiếng bíp ngắn để phản hồi (test còi)
     void triggerBeep(uint16_t durationMs = 100);
@@ -28,6 +29,7 @@ private:
 
     unsigned long _beepEndTime;
     bool _isBeepingOnce;
+    bool _isSilenced;
 
     void setBuzzer(bool active);
 };

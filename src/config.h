@@ -15,7 +15,7 @@
 // ==========================================
 // Cảm biến khí MQ-135
 #define PIN_MQ135_ANALOG    34      // ADC1_CH6 (tín hiệu AO qua cầu phân áp an toàn 3.3V)
-#define PIN_MQ135_DIGITAL   35      // Tín hiệu DO từ LM393
+#define PIN_MQ135_DIGITAL   255     // Không đấu DO; chỉ sử dụng AO qua cầu phân áp
 
 // Cảm biến chuyển động MPU6050 (6 trục)
 #define PIN_I2C_SDA         21      // SDA MPU6050
@@ -23,18 +23,17 @@
 #define MPU6050_I2C_ADDR    0x68
 
 // Module GPS NEO-6M nối với UART2 của ESP32
-#define PIN_GPS_RX          16      // RX2 nối TX của NEO-6M
-#define PIN_GPS_TX          17      // TX2 nối RX của NEO-6M
+#define PIN_GPS_RX          26      // RX2 nối TX của NEO-6M
+#define PIN_GPS_TX          25      // TX2 nối RX của NEO-6M
 #define GPS_BAUD_RATE       9600
 
 // Công tắc nhận biết đội mũ / Nút nhấn khẩn cấp SOS
-// Hỗ trợ công tắc hành trình KW11-3Z-2 (GPIO4) và nút SOS (GPIO27)
-#define PIN_TOUCH_WORN      4       // KW11 COM -> GND, NO -> GPIO4 (INPUT_PULLUP)
+#define PIN_TOUCH_WORN      14      // Công tắc C -> GND, NO -> GPIO14 (INPUT_PULLUP)
 #define PIN_SOS_BUTTON      27      // GPIO27 nối nút nhấn vật lý, đầu kia nối GND (INPUT_PULLUP)
 #define TOUCH_THRESHOLD     40      // < 40 là đang đội mũ, > 50 là tháo mũ
 
 // Thiết bị phát âm thanh cảnh báo (Active Buzzer)
-#define PIN_BUZZER          25      // GPIO25 điều khiển còi báo động (HIGH = kêu, LOW = tắt)
+#define PIN_BUZZER          13      // GPIO13 điều khiển còi báo động (HIGH = kêu, LOW = tắt)
 
 // ==========================================
 // 2. KẾT NỐI MẠNG & MQTT (Mục 3.4)
@@ -78,7 +77,7 @@
 #define MQ135_RL_KOHM               10.0f
 #define MQ135_R0_KOHM               76.63f
 #define MQ135_CIRCUIT_VOLTAGE       5.0f
-#define MQ135_VOLTAGE_DIVIDER_GAIN  1.0f
+#define MQ135_VOLTAGE_DIVIDER_GAIN  (34.0f / 22.0f) // AO 5V qua 12k/22k vào GPIO34
 
 // ==========================================
 // 5. CẤU HÌNH NGƯỠNG CẢNH BÁO (Bảng 3.11)

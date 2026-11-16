@@ -275,7 +275,7 @@
                 this.disabled = true;
                 this.textContent = 'Đang xử lý...';
                 for (const id of ids) {
-                    try { await fetch(`/alerts/${id}/ack`, { method: 'POST' }); } catch (_) {}
+                    try { await fetch(`/alerts/${id}/ack`, { method: 'POST' }); } catch (_) { }
                 }
                 this.closest('.alert-row').remove();
                 setAlertCount(alertCount - cnt);
