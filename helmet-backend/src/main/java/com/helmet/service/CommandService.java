@@ -3,6 +3,7 @@ package com.helmet.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.helmet.model.DeviceCommand;
 import com.helmet.mqtt.MqttCommandPublisher;
+import com.helmet.realtime.RealtimePublisher;
 import com.helmet.repository.DeviceCommandRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,17 +21,20 @@ public class CommandService {
     private final DeviceService deviceService;
     private final DeviceStateService deviceStateService;
     private final MqttCommandPublisher commandPublisher;
+    private final RealtimePublisher realtimePublisher;
     private final ObjectMapper objectMapper;
 
     public CommandService(DeviceCommandRepository commandRepository,
                           DeviceService deviceService,
                           DeviceStateService deviceStateService,
                           MqttCommandPublisher commandPublisher,
+                          RealtimePublisher realtimePublisher,
                           ObjectMapper objectMapper) {
         this.commandRepository = commandRepository;
         this.deviceService = deviceService;
         this.deviceStateService = deviceStateService;
         this.commandPublisher = commandPublisher;
+        this.realtimePublisher = realtimePublisher;
         this.objectMapper = objectMapper;
     }
 
@@ -61,7 +65,11 @@ public class CommandService {
             String state = String.valueOf(payload.getOrDefault("state", "ON"));
             boolean on = "ON".equalsIgnoreCase(state);
             deviceService.updateBuzzerState(deviceUid, on);
-            deviceStateService.updateDeviceState(deviceUid, s -> s.setBuzzerOn(on));
+            deviceStateService.updateDeviceState(deviceUid, s -> {
+                s.setBuzzerOn(on);
+                s.setBuzzerState(on ? "ON" : "OFF");
+            });
+            realtimePublisher.publishState(deviceUid, deviceStateService.getDeviceState(deviceUid));
         }
 
         // Gửi qua MQTT xuống mũ

@@ -199,10 +199,11 @@
                             <small id="buzzer-subtext"
                                 th:text="${state.buzzerOn ? 'Đang phát âm thanh' : 'Đang tắt'}">Đang tắt</small>
                         </div>
-                        <form method="post" th:action="@{/devices/{uid}/buzzer(uid=${selectedUid})}">
-                            <input type="hidden" name="on" th:value="${!state.buzzerOn}">
-                            <button class="buzzer-btn" type="submit"
-                                th:text="${state.buzzerOn ? 'Tắt còi' : 'Bật còi'}">Tắt còi</button>
+                        <form method="post" th:action="@{/devices/{uid}/buzzer(uid=${selectedUid})}" id="buzzer-form">
+                            <input type="hidden" id="buzzer-on-input" name="on" th:value="${!state.buzzerOn}">
+                            <button class="buzzer-btn" id="buzzer-btn" type="submit"
+                                th:classappend="${state.buzzerOn ? ' is-beeping' : ''}"
+                                th:text="${state.buzzerOn ? 'Tắt tiếng' : 'Tìm mũ'}">Tìm mũ</button>
                         </form>
                     </div>
                 </article>
@@ -221,6 +222,7 @@
                     <div th:each="alert : ${recentAlerts}" class="alert-row" th:data-type="${alert.type}"
                         th:data-device="${alert.deviceUid}"
                         th:data-date="${#temporals.format(alert.occurredAt, 'dd/MM/yyyy')}" th:data-id="${alert.id}"
+                        th:data-status="${alert.status.name()}"
                         th:data-msg="${alert.message}" th:data-time="${#temporals.format(alert.occurredAt, 'HH:mm')}"
                         th:data-severity="${alert.severity.name()}">
                         <div class="alert-icon-square">

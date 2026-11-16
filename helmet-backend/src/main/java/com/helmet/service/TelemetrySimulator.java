@@ -21,7 +21,7 @@ public class TelemetrySimulator {
     @Value("${helmet.simulation.enabled:true}")
     private boolean enabled;
 
-    @Value("${helmet.default-device-id:HELMET_001}")
+    @Value("${helmet.default-device-id:HELMET_002}")
     private String defaultDeviceId;
 
     private double currentGas = 185.0;

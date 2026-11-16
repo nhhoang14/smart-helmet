@@ -81,7 +81,7 @@ public class DashboardController {
             model.addAttribute("threshold", thresholdSettingsRepository.findByDeviceUid(dashboardDeviceUid)
                     .orElseGet(() -> ThresholdSettings.builder().deviceUid(dashboardDeviceUid).build()));
 
-            List<AlertDto> recentAlerts = alertService.getDeviceAlerts(selectedUid);
+            List<AlertDto> recentAlerts = alertService.getDevicePendingAlerts(selectedUid);
             int end = Math.min(20, recentAlerts.size());
             model.addAttribute("recentAlerts", recentAlerts.subList(0, end));
         }

@@ -10,7 +10,6 @@ import com.helmet.repository.DeviceRepository;
 import com.helmet.repository.TelemetryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,11 +33,11 @@ public class TelemetryService {
     private final Map<String, Instant> lastSavedTimeMap = new ConcurrentHashMap<>();
 
     public TelemetryService(TelemetryRepository telemetryRepository,
-                            DeviceRepository deviceRepository,
-                            SettingsService settingsService,
-                            AlertService alertService,
-                            DeviceStateService deviceStateService,
-                            RealtimePublisher realtimePublisher) {
+            DeviceRepository deviceRepository,
+            SettingsService settingsService,
+            AlertService alertService,
+            DeviceStateService deviceStateService,
+            RealtimePublisher realtimePublisher) {
         this.telemetryRepository = telemetryRepository;
         this.deviceRepository = deviceRepository;
         this.settingsService = settingsService;
@@ -52,8 +51,8 @@ public class TelemetryService {
         Instant now = Instant.now();
         Instant recordedAt = msg.getTimestampEpoch() != null
                 ? (msg.getTimestampEpoch() > 10000000000L
-                    ? Instant.ofEpochMilli(msg.getTimestampEpoch())
-                    : Instant.ofEpochSecond(msg.getTimestampEpoch()))
+                        ? Instant.ofEpochMilli(msg.getTimestampEpoch())
+                        : Instant.ofEpochSecond(msg.getTimestampEpoch()))
                 : now;
 
         // Chỉ tiếp nhận dữ liệu từ thiết bị đã đăng ký bằng deviceUid duy nhất.
@@ -73,19 +72,31 @@ public class TelemetryService {
         Double lng = msg.getLongitude();
         Boolean gpsFix = msg.getGpsFix();
 
-        if (isWorn != null) device.setWorn(isWorn);
-        if (lat != null) device.setLastLat(lat);
-        if (lng != null) device.setLastLng(lng);
+        if (isWorn != null)
+            device.setWorn(isWorn);
+        if (msg.getBuzzerOn() != null)
+            device.setBuzzerOn(msg.getBuzzerOn());
+        if (lat != null)
+            device.setLastLat(lat);
+        if (lng != null)
+            device.setLastLng(lng);
         deviceRepository.save(device);
 
-        // 2. Cập nhật trạng thái tức thời trên Redis (Mục 3.7.2 bước 5: DeviceStateService)
+        // 2. Cập nhật trạng thái tức thời trên Redis (Mục 3.7.2 bước 5:
+        // DeviceStateService)
         DeviceStateDto state = deviceStateService.updateDeviceState(deviceUid, s -> {
             s.setOnline(true);
             s.setWorn(Boolean.TRUE.equals(isWorn));
+            if (msg.getBuzzerOn() != null) {
+                s.setBuzzerOn(msg.getBuzzerOn());
+                s.setBuzzerState(msg.getBuzzerOn() ? "ON" : "OFF");
+            }
             s.setGasPpm(gas);
             s.setAccMagnitude(accMagnitude);
-            if (lat != null) s.setLastLat(lat);
-            if (lng != null) s.setLastLng(lng);
+            if (lat != null)
+                s.setLastLat(lat);
+            if (lng != null)
+                s.setLastLng(lng);
             s.setLastSeenAt(now);
 
             Map<String, Object> sensors = new HashMap<>();
@@ -94,21 +105,21 @@ public class TelemetryService {
             s.setSensors(sensors);
 
             Map<String, Object> gps = new HashMap<>();
-            if (lat != null) gps.put("latitude", lat);
-            if (lng != null) gps.put("longitude", lng);
+            if (lat != null)
+                gps.put("latitude", lat);
+            if (lng != null)
+                gps.put("longitude", lng);
             gps.put("fix", gpsFix);
             gps.put("source", msg.resolveLocationSource());
             s.setGps(gps);
         });
 
-        // 3. Đánh giá cảnh báo khí độc theo ngưỡng (Mục 3.7.3)
-        alertService.evaluateGas(device, gas, lat, lng);
-
-        // 4. Đánh giá té ngã theo NGƯỠNG (Mục 3.7.4 - dùng ngưỡng gia tốc MPU6050 & Touch Pin, không dùng TinyML)
-        alertService.evaluateFallByThreshold(device, accMagnitude, Boolean.TRUE.equals(isWorn), lat, lng);
-
+        // 3. Server chỉ tiếp nhận trạng thái ngã từ MPU6050 và thông số PPM từ MQ-135.
+        // Logic xem ngưỡng và báo còi do thiết bị ESP32 tự xử lý cục bộ.
+        // Khi thiết bị phát hiện té ngã hoặc trong ngưỡng cảnh báo, server ghi nhận và cập nhật vị trí.
         if (Boolean.TRUE.equals(msg.getFall())) {
-            alertService.handleEvent(deviceUid, "FALL", lat, lng);
+            alertService.handleEventWithValue(deviceUid, "FALL", accMagnitude, lat, lng,
+                    "Phát hiện sự cố té ngã từ cảm biến MPU6050!", msg.resolveLocationSource());
         }
 
         // 5. Ghi dữ liệu cảm biến vào MySQL (Mục 3.7.2 bước 6)
@@ -130,7 +141,7 @@ public class TelemetryService {
     }
 
     private void saveTelemetryRecord(Device device, Double gas, Double acc, Boolean isWorn,
-                                    Double lat, Double lng, Boolean gpsFix, Instant recordedAt) {
+            Double lat, Double lng, Boolean gpsFix, Instant recordedAt) {
         Telemetry t = Telemetry.builder()
                 .deviceId(device.getId())
                 .deviceUid(device.getUid())

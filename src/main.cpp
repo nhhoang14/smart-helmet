@@ -192,6 +192,8 @@ void publishTelemetry() {
     doc["voltage"] = mq135.getVoltage();
     doc["worn"] = systemEnabled;
     doc["fall"] = false;
+    doc["buzzer_on"] = alarmCtrl.isSounding();
+    doc["buzzer_state"] = alarmCtrl.isSounding() ? "ON" : "OFF";
     doc["lat"] = lat;
     doc["lng"] = lng;
     doc["location_source"] = source;
@@ -228,14 +230,32 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     serializeJson(doc, Serial);
     Serial.println();
 
-    if (doc.containsKey("buzzer")) {
-        bool buzzerOn = doc["buzzer"].as<bool>();
-        if (buzzerOn) {
+    bool shouldBuzzerOn = false;
+    bool hasBuzzerCmd = false;
+
+    if (doc.containsKey("action")) {
+        const char* action = doc["action"];
+        if (strcasecmp(action, "FIND_HELMET") == 0) {
+            hasBuzzerCmd = true;
+            const char* state = doc["payload"]["state"] | "ON";
+            shouldBuzzerOn = (strcasecmp(state, "ON") == 0);
+        }
+    } else if (doc.containsKey("buzzer")) {
+        hasBuzzerCmd = true;
+        shouldBuzzerOn = doc["buzzer"].as<bool>();
+    }
+
+    if (hasBuzzerCmd) {
+        if (shouldBuzzerOn) {
             alarmCtrl.setState(STATE_DANGER);
-            Serial.println(F("[CMD] Bật còi báo động theo lệnh Web."));
+            Serial.println(F("[CMD] Bật còi báo động để Tìm mũ!"));
+            // Bật còi và lập tức gửi vị trí hiện tại lên server
+            publishTelemetry();
         } else {
+            alarmCtrl.silence();
             alarmCtrl.setState(STATE_SAFE);
             Serial.println(F("[CMD] Tắt còi theo lệnh Web."));
+            publishTelemetry();
         }
     }
 }
@@ -245,7 +265,9 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
 // ==========================================
 
 bool isSwitchPressedRaw() {
-    // Công tắc nối GND: LOW nghĩa là hệ thống được bật.
+    // Công tắc hành trình KW11 nối GND và GPIO14 (INPUT_PULLUP):
+    // Khi đội mũ, công tắc bị nén đóng lại -> LOW (ĐANG ĐỘI).
+    // Khi chưa ấn/tháo mũ -> HIGH (CHƯA ĐỘI).
     return digitalRead(PIN_TOUCH_WORN) == LOW;
 }
 
@@ -259,16 +281,16 @@ void checkControls() {
         systemEnabled = reading;
 
         if (systemEnabled) {
-            mq135.begin();
-            gpsSerial.begin(GPS_BAUD_RATE, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
-            currentState = STATE_WARMING_UP;
-            alarmCtrl.setState(STATE_WARMING_UP);
-            Serial.println(F("[SYSTEM] Công tắc bật: bắt đầu đo cảm biến."));
+            Serial.println(F("[HELMET] Người công nhân ĐÃ ĐỘI MŨ (Công tắc KW11 ĐÓNG)."));
         } else {
-            currentState = STATE_SAFE;
-            alarmCtrl.setState(STATE_SAFE);
-            Serial.println(F("[SYSTEM] Công tắc tắt: dừng đo cảm biến."));
+            Serial.println(F("[HELMET] Người công nhân CHƯA ĐỘI / ĐÃ THÁO MŨ (Công tắc KW11 MỞ)."));
+            if (currentState != STATE_WARMING_UP) {
+                currentState = STATE_SAFE;
+                alarmCtrl.setState(STATE_SAFE);
+            }
         }
+        // Gửi ngay bản tin cập nhật trạng thái đội/chưa đội lên Backend
+        publishTelemetry();
     }
 
     bool buttonPressed = digitalRead(PIN_SOS_BUTTON) == LOW;
@@ -276,9 +298,22 @@ void checkControls() {
         (now - lastButtonDebounceTime) > DEBOUNCE_DELAY) {
         lastButtonState = buttonPressed;
         lastButtonDebounceTime = now;
-        if (buttonPressed && systemEnabled) {
-            alarmCtrl.silence();
-            Serial.println(F("[BUTTON] Đã tắt còi."));
+        if (buttonPressed) {
+            if (alarmCtrl.isSounding()) {
+                // Còi đang kêu -> bấm nút sẽ TẮT CÒI (tắt tiếng)
+                alarmCtrl.silence();
+                alarmCtrl.setState(STATE_SAFE);
+                Serial.println(F("[BUTTON] Còi đang kêu -> Đã bấm nút tắt còi."));
+                publishTelemetry();
+            } else {
+                // Còi đang tắt -> bấm nút sẽ GỬI SOS khẩn cấp kèm vị trí
+                Serial.println(F("[BUTTON] Còi đang tắt -> Bấm nút gửi SOS khẩn cấp kèm vị trí!"));
+                alarmCtrl.setState(STATE_DANGER);
+                const char* msg = "Tín hiệu SOS khẩn cấp được kích hoạt từ nút bấm trên vành mũ!";
+                if (!publishAlertEvent("SOS", msg)) {
+                    enqueueEvent("SOS", msg);
+                }
+            }
         }
     }
 }
@@ -354,6 +389,19 @@ void setup() {
 
     // Khởi tạo cảm biến và còi
     alarmCtrl.begin();
+    mq135.begin();
+    gpsSerial.begin(GPS_BAUD_RATE, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+
+    // Đọc trạng thái công tắc ban đầu
+    systemEnabled = isSwitchPressedRaw();
+    lastSwitchState = systemEnabled;
+    if (systemEnabled) {
+        currentState = STATE_WARMING_UP;
+        alarmCtrl.setState(STATE_WARMING_UP);
+    } else {
+        currentState = STATE_SAFE;
+        alarmCtrl.setState(STATE_SAFE);
+    }
 
     // Cấu hình MQTT
     mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
@@ -361,36 +409,32 @@ void setup() {
     mqttClient.setBufferSize(512);
     WiFi.setAutoReconnect(true);
 
-    Serial.println(F("[INFO] Đang chờ bật công tắc để bắt đầu đo cảm biến..."));
+    Serial.println(F("[INFO] Hệ thống đã khởi động. Đang kết nối mạng..."));
 }
 
 void loop() {
-    // 1. Đọc luồng GPS NMEA từ UART2
+    // 1. Kiểm tra công tắc nhận biết đội mũ (KW11) & nút nhấn SOS
     checkControls();
 
-    if (systemEnabled) {
-        readGps();
-    }
+    // 2. Đọc luồng GPS NMEA từ UART2 (luôn duy trì để định vị tìm mũ)
+    readGps();
 
-    // 2. Cập nhật cảm biến khí MQ-135 và còi
-    if (systemEnabled) {
-        mq135.update();
-    }
+    // 3. Cập nhật cảm biến khí MQ-135 và còi
+    mq135.update();
     alarmCtrl.update();
 
-    // 4. Duy trì kết nối Wi-Fi và MQTT
-    if (systemEnabled) {
-        connectNetwork();
-    }
+    // 4. Duy trì kết nối Wi-Fi và MQTT (luôn duy trì để giữ trạng thái Online)
+    connectNetwork();
     if (mqttClient.connected()) {
         mqttClient.loop();
         flushEventQueue();
     }
 
-    // 5. Đánh giá ngưỡng nồng độ khí độc & điều khiển còi
+    // 5. Đánh giá ngưỡng nồng độ khí độc & điều khiển còi (chỉ khi đang đội mũ)
     SystemState previousState = currentState;
 
     if (!systemEnabled) {
+        // Chưa đội mũ: giữ trạng thái an toàn
         currentState = STATE_SAFE;
     } else if (!mq135.isWarmedUp()) {
         currentState = STATE_WARMING_UP;
@@ -430,13 +474,11 @@ void loop() {
         }
     }
 
-    // 6. Định kỳ gửi Telemetry lên Backend (mỗi 3 giây)
+    // 6. Định kỳ gửi Telemetry lên Backend mỗi 3 giây (gửi cả trạng thái đang đội hoặc chưa đội)
     unsigned long now = millis();
     if (now - lastTelemetryPublish >= TELEMETRY_INTERVAL_MS) {
         lastTelemetryPublish = now;
-        if (systemEnabled) {
-            publishTelemetry();
-        }
+        publishTelemetry();
     }
 
     // 7. Định kỳ in log trạng thái ra Serial Monitor (mỗi 1 giây)

@@ -14,18 +14,22 @@
                 <p class="muted">Theo dõi và xác nhận các sự cố từ thiết bị.</p>
             </div>
         </div>
-        <form class="filter-bar" method="get" th:action="@{/alerts}"><select name="type">
+        <form class="filter-bar" method="get" th:action="@{/alerts}">
+            <select name="type">
                 <option value="">Tất cả loại</option>
                 <option value="GAS_WARNING" th:selected="${filterType == 'GAS_WARNING'}">Khí cảnh báo</option>
                 <option value="GAS_DANGER" th:selected="${filterType == 'GAS_DANGER'}">Khí nguy hiểm</option>
                 <option value="FALL" th:selected="${filterType == 'FALL'}">Té ngã</option>
                 <option value="SOS" th:selected="${filterType == 'SOS'}">SOS</option>
                 <option value="OFFLINE" th:selected="${filterType == 'OFFLINE'}">Mất kết nối</option>
-            </select><select name="status">
+            </select>
+            <select name="status">
                 <option value="">Mọi trạng thái</option>
                 <option value="NEW" th:selected="${filterStatus == 'NEW'}">Chưa xử lý</option>
                 <option value="ACKNOWLEDGED" th:selected="${filterStatus == 'ACKNOWLEDGED'}">Đã xác nhận</option>
-            </select><button class="button" type="submit">Lọc</button></form>
+            </select>
+            <button class="button" type="submit">Lọc</button>
+        </form>
         <div class="card table-card">
             <table>
                 <thead>
@@ -47,12 +51,17 @@
                         <td><code th:text="${alert.deviceUid}">01</code></td>
                         <td th:text="${#temporals.format(alert.occurredAt, 'dd/MM/yyyy HH:mm')}">-</td>
                         <td><span class="status-label"
+                                th:classappend="${alert.status.name() == 'ACKNOWLEDGED' ? ' acknowledged' : ''}"
                                 th:text="${alert.status.name() == 'NEW' ? 'Chưa xử lý' : 'Đã xác nhận'}">Chưa xử
                                 lý</span></td>
                         <td>
                             <form th:if="${alert.status.name() == 'NEW'}" method="post"
-                                th:action="@{/alerts/{id}/ack(id=${alert.id})}"><button class="button small"
-                                    type="submit">Xác nhận</button></form>
+                                class="ack-alert-form"
+                                th:action="@{/alerts/{id}/ack(id=${alert.id})}">
+                                <input type="hidden" name="redirectTo"
+                                    th:value="@{/alerts(page=${currentPage},type=${filterType},status=${filterStatus})}">
+                                <button class="button small ack-btn" type="submit">Xác nhận</button>
+                            </form>
                         </td>
                     </tr>
                     <tr th:if="${alerts.isEmpty()}">
@@ -61,11 +70,61 @@
                 </tbody>
             </table>
         </div>
-        <div class="pagination" th:if="${totalPages > 1}"><a th:if="${currentPage > 0}"
-                th:href="@{/alerts(page=${currentPage - 1},type=${filterType},status=${filterStatus})}">← Trước</a><span
-                th:text="${currentPage + 1 + ' / ' + totalPages}">1 / 1</span><a th:if="${currentPage + 1 < totalPages}"
-                th:href="@{/alerts(page=${currentPage + 1},type=${filterType},status=${filterStatus})}">Sau →</a></div>
+        <div class="pagination" th:if="${totalPages > 1}">
+            <a th:if="${currentPage > 0}" class="pagination-btn"
+                th:href="@{/alerts(page=${currentPage - 1},type=${filterType},status=${filterStatus})}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                Trước
+            </a>
+            <span th:if="${currentPage == 0}" class="pagination-btn pagination-disabled">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                Trước
+            </span>
+            <span class="pagination-indicator" th:text="${'Trang ' + (currentPage + 1) + ' / ' + totalPages}">Trang 1 / 1</span>
+            <a th:if="${currentPage + 1 < totalPages}" class="pagination-btn"
+                th:href="@{/alerts(page=${currentPage + 1},type=${filterType},status=${filterStatus})}">
+                Sau
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </a>
+            <span th:if="${currentPage + 1 >= totalPages}" class="pagination-btn pagination-disabled">
+                Sau
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </span>
+        </div>
     </main>
+    <script>
+    document.querySelectorAll('.ack-alert-form').forEach(function(form) {
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            var btn = form.querySelector('.ack-btn');
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '...';
+            }
+            try {
+                var formData = new FormData(form);
+                var res = await fetch(form.action, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams(formData)
+                });
+                if (res.ok) {
+                    var tr = form.closest('tr');
+                    var statusSpan = tr ? tr.querySelector('.status-label') : null;
+                    if (statusSpan) {
+                        statusSpan.textContent = 'Đã xác nhận';
+                        statusSpan.classList.add('acknowledged');
+                    }
+                    form.remove();
+                } else {
+                    form.submit();
+                }
+            } catch (_) {
+                form.submit();
+            }
+        });
+    });
+    </script>
 </body>
 
 </html>

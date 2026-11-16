@@ -8,6 +8,8 @@ Firmware ESP32 cho hệ thống mũ bảo hộ thông minh, tích hợp:
 - **Công tắc khẩn cấp SOS / Công tắc hành trình KW11-3Z-2**: khi bấm, còi bíp phản hồi, lập tức lấy tọa độ vị trí, gửi sự kiện về backend và hiển thị cảnh báo tức thì trên Web Dashboard.
 - Truyền thông thời gian thực qua **MQTT Broker** (Eclipse Mosquitto) và **WebSocket (STOMP)**.
 
+Trong bản demo qua mạng, `HELMET_001` là mũ thật dùng firmware ESP32 và `HELMET_002` là mũ mô phỏng do backend phát telemetry tự động.
+
 ---
 
 ## 1. Sơ đồ kết nối phần cứng (ESP32 DevKit V1)

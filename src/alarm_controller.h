@@ -17,6 +17,7 @@ public:
     void setState(SystemState newState);
     void update();
     void silence();
+    bool isSounding() const;
 
     // Cho phép kích hoạt tiếng bíp ngắn để phản hồi (test còi)
     void triggerBeep(uint16_t durationMs = 100);

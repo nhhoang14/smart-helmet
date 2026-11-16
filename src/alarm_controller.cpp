@@ -44,6 +44,11 @@ void AlarmController::silence() {
     setBuzzer(false);
 }
 
+bool AlarmController::isSounding() const {
+    if (_isSilenced) return false;
+    return (_currentState == STATE_DANGER || _currentState == STATE_WARNING || _isBeepingOnce);
+}
+
 void AlarmController::triggerBeep(uint16_t durationMs) {
     if (_isSilenced) return;
     _isBeepingOnce = true;
