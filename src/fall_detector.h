@@ -18,7 +18,7 @@ struct FallConfig {
     uint32_t windowMs = 5000;
     uint32_t holdMs = 3000;
     // Set a branch's hold time to zero to disable that branch.
-    uint32_t slowHoldMs = 8000;
+    uint32_t slowHoldMs = 0;
     uint32_t movingWindowMs = 6000;
     uint32_t movingHoldMs = 4000;
     float orientationCorrectionSeconds = 0.5f;
