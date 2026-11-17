@@ -1,8 +1,10 @@
 package com.helmet.service;
 
+import com.helmet.dto.LocationMessage;
 import com.helmet.dto.TelemetryMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -17,6 +19,8 @@ public class TelemetrySimulator {
 
     private final TelemetryService telemetryService;
     private final AlertService alertService;
+    // Tùy chọn: giả lập vị trí khu vực cho mũ mô phỏng (null trong unit test)
+    private final LocationService locationService;
     private final Random random = new Random();
 
     @Value("${helmet.simulation.enabled:true}")
@@ -25,13 +29,23 @@ public class TelemetrySimulator {
     @Value("${helmet.simulation.device-id:HELMET_002}")
     private String simulationDeviceId;
 
+    @Value("${helmet.simulation.zone-enabled:true}")
+    private boolean zoneEnabled;
+
     private double currentGas = 185.0;
     private int stepCount = 0;
     private int previousGasLevel = 0;
 
     public TelemetrySimulator(TelemetryService telemetryService, AlertService alertService) {
+        this(telemetryService, alertService, null);
+    }
+
+    @Autowired
+    public TelemetrySimulator(TelemetryService telemetryService, AlertService alertService,
+                              LocationService locationService) {
         this.telemetryService = telemetryService;
         this.alertService = alertService;
+        this.locationService = locationService;
     }
 
     @Scheduled(fixedDelayString = "${helmet.simulation.interval-ms:2000}")
@@ -109,6 +123,14 @@ public class TelemetrySimulator {
         if (simulatedFall) {
             alertService.handleEventWithValue(simulationDeviceId, "FALL", accMag, lat, lng,
                     "Su co te nga mo phong - HELMET_002", "simulation");
+        }
+
+        // Giả lập vị trí khu vực cho mũ mô phỏng: cứ 10 chu kỳ (~20 giây) đổi phòng 301 / hành lang
+        if (zoneEnabled && locationService != null) {
+            LocationMessage loc = new LocationMessage();
+            loc.setZone((stepCount / 10) % 2 == 0 ? "phong_301" : "hanh_lang");
+            loc.setSource("simulation");
+            locationService.processLocation(simulationDeviceId, loc);
         }
     }
 }

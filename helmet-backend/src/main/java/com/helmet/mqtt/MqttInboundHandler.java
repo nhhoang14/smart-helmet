@@ -3,15 +3,20 @@ package com.helmet.mqtt;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.helmet.dto.EventMessage;
+import com.helmet.dto.LocationMessage;
 import com.helmet.dto.StateMessage;
 import com.helmet.dto.TelemetryMessage;
+import com.helmet.dto.WifiScanMessage;
 import com.helmet.service.AlertService;
 import com.helmet.service.DeviceService;
 import com.helmet.service.DeviceStateService;
+import com.helmet.service.LocationService;
 import com.helmet.service.SettingsService;
 import com.helmet.service.TelemetryService;
+import com.helmet.service.WifiFingerprintService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -23,19 +28,37 @@ public class MqttInboundHandler {
     private final DeviceService deviceService;
     private final DeviceStateService deviceStateService;
     private final SettingsService settingsService;
+    private final LocationService locationService;
+    private final WifiFingerprintService wifiFingerprintService;
     private final ObjectMapper objectMapper;
 
+    /** Dùng trong unit test của nhóm: không có định vị khu vực. */
     public MqttInboundHandler(TelemetryService telemetryService,
                               AlertService alertService,
                               DeviceService deviceService,
                               DeviceStateService deviceStateService,
                               SettingsService settingsService,
                               ObjectMapper objectMapper) {
+        this(telemetryService, alertService, deviceService, deviceStateService, settingsService,
+                null, null, objectMapper);
+    }
+
+    @Autowired
+    public MqttInboundHandler(TelemetryService telemetryService,
+                              AlertService alertService,
+                              DeviceService deviceService,
+                              DeviceStateService deviceStateService,
+                              SettingsService settingsService,
+                              LocationService locationService,
+                              WifiFingerprintService wifiFingerprintService,
+                              ObjectMapper objectMapper) {
         this.telemetryService = telemetryService;
         this.alertService = alertService;
         this.deviceService = deviceService;
         this.deviceStateService = deviceStateService;
         this.settingsService = settingsService;
+        this.locationService = locationService;
+        this.wifiFingerprintService = wifiFingerprintService;
         this.objectMapper = objectMapper;
     }
 
@@ -106,6 +129,18 @@ public class MqttInboundHandler {
                     if (isOnline) {
                         settingsService.syncThresholdToDevice(deviceId, settingsService.getThresholds(deviceId));
                     }
+                    break;
+                }
+                case "wifiscan": {
+                    // Bản quét Wi-Fi của mũ -> kNN fingerprint -> khu vực
+                    WifiScanMessage msg = objectMapper.readValue(payload, WifiScanMessage.class);
+                    if (wifiFingerprintService != null) wifiFingerprintService.processScan(deviceId, msg);
+                    break;
+                }
+                case "location": {
+                    // Khu vực đã được tính sẵn ở nơi khác (không bắt buộc)
+                    LocationMessage msg = objectMapper.readValue(payload, LocationMessage.class);
+                    if (locationService != null) locationService.processLocation(deviceId, msg);
                     break;
                 }
                 case "state": {

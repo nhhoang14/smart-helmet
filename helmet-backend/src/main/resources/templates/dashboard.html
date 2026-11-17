@@ -165,32 +165,39 @@
                         <h2>Vị trí mũ</h2>
                         <a class="text-link" th:href="@{/history(deviceUid=${selectedUid})}">Xem lịch sử →</a>
                     </div>
-                    <!-- Mini vector map illustration -->
-                    <div class="map-preview-box">
-                        <svg class="map-svg" viewBox="0 0 320 120" preserveAspectRatio="none"
-                            xmlns="http://www.w3.org/2000/svg">
-                            <rect width="320" height="120" fill="#f1f4f8" />
-                            <!-- Green park/building blocks -->
-                            <rect x="22" y="16" width="62" height="34" rx="6" fill="#e2ebd9" />
-                            <rect x="180" y="24" width="70" height="32" rx="6" fill="#e2ebd9" />
-                            <rect x="28" y="76" width="80" height="32" rx="6" fill="#e2ebd9" />
-                            <!-- White road lines -->
-                            <path d="M-10 60 L330 60" stroke="#ffffff" stroke-width="18" stroke-linecap="round" />
-                            <path d="M142 -10 L142 130" stroke="#ffffff" stroke-width="18" stroke-linecap="round" />
-                            <path d="M-10 108 L330 80" stroke="#ffffff" stroke-width="12" stroke-linecap="round" />
-                            <!-- GPS pin radar -->
-                            <circle cx="142" cy="60" r="18" fill="rgba(220, 38, 38, 0.18)" />
-                            <circle cx="142" cy="60" r="8" fill="#ffffff" />
-                            <circle cx="142" cy="60" r="5" fill="#dc2626" />
+                    <!-- Sơ đồ tầng: khu vực đang có mũ sẽ sáng lên (Wi-Fi fingerprint, xem WifiFingerprintService) -->
+                    <!-- data-zone của mỗi khu vực phải trùng với nhãn trong file huấn luyện data/wifi_train.csv -->
+                    <div class="floor-plan" id="floor-plan"
+                        th:data-zone="${state.zone != null ? state.zone : 'unknown'}"
+                        th:data-source="${state.zoneSource}"
+                        th:data-zone-updated="${state.zoneUpdatedAt}"
+                        th:data-zone-age="${state.zoneUpdatedAt != null ? #dates.createNow().time - state.zoneUpdatedAt : -1}">
+                        <svg class="floor-plan-svg" viewBox="150 0 990 800" role="img" aria-labelledby="floor-plan-title">
+                            <title id="floor-plan-title">Sơ đồ tầng 3: Phòng 301 và hành lang</title>
+                            <g class="zone-area" data-zone="phong_301" data-label="Phòng 301">
+                                <rect x="165" y="44" width="383" height="519" fill="#ffffff" stroke="#334155"/>
+                                <text class="zone-label" x="356" y="290" fill="#64748b" font-size="46" text-anchor="middle">Phòng 301</text>
+                            </g>
+                            <g class="zone-area" data-zone="hanh_lang" data-label="Hành lang">
+                                <polygon points="548,7 931,7 931,572 1123,572 1123,789 548,789" fill="#ffffff" stroke="#334155"/>
+                                <text class="zone-label" x="740" y="290" fill="#64748b" font-size="46" text-anchor="middle">Hành lang</text>
+                            </g>
+                            <rect class="floor-door" x="541" y="65" width="14" height="92" fill="#ffffff" stroke="#334155"/>
+                            <g class="zone-marker" data-zone="phong_301" transform="translate(356 400)" display="none">
+                                <circle class="marker-pulse" r="44" fill="rgba(220,38,38,0.22)"/>
+                                <circle class="marker-ring" r="20" fill="#ffffff"/>
+                                <circle class="marker-dot" r="12" fill="#dc2626"/>
+                            </g>
+                            <g class="zone-marker" data-zone="hanh_lang" transform="translate(740 420)" display="none">
+                                <circle class="marker-pulse" r="44" fill="rgba(220,38,38,0.22)"/>
+                                <circle class="marker-ring" r="20" fill="#ffffff"/>
+                                <circle class="marker-dot" r="12" fill="#dc2626"/>
+                            </g>
                         </svg>
                     </div>
                     <div class="location-info-row">
-                        <strong id="location-coords"
-                            th:text="${state.lastLat != null ? #numbers.formatDecimal(state.lastLat, 1, 6) + ', ' + #numbers.formatDecimal(state.lastLng, 1, 6) : '20.980364, 105.787437'}">20.980364,
-                            105.787437</strong>
-                        <small id="location-source"
-                            th:text="${state.gps != null and state.gps['source'] == 'gps' ? 'GPS ngoài trời · NEO-6M' : (state.lastLat != null ? 'Định vị Wi-Fi · Trong nhà' : 'GPS ngoài trời · NEO-6M')}">GPS
-                            ngoài trời · NEO-6M</small>
+                        <strong id="zone-name">Đang xác định vị trí…</strong>
+                        <small id="zone-detail">Định vị trong nhà · Wi-Fi fingerprint</small>
                     </div>
                     <hr class="card-divider">
                     <div class="buzzer-control-row">

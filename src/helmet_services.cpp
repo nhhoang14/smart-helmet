@@ -31,7 +31,7 @@ bool locationFix = false;
 bool locationApproximate = false;
 uint32_t locationUpdatedAt = 0;
 double locationLat = 0, locationLng = 0;
-char telemetryTopic[96], alertTopic[96], statusTopic[96], commandTopic[96];
+char telemetryTopic[96], alertTopic[96], statusTopic[96], commandTopic[96], wifiScanTopic[96];
 HelmetSnapshot snapshot() {
     portENTER_CRITICAL(&snapshotMux);
     HelmetSnapshot result = latest;
@@ -117,6 +117,48 @@ bool publishTelemetry() {
     if (!sent) Serial.printf("MQTT: telemetry send failed for %s, reconnecting.\n", HELMET_DEVICE_ID);
     return sent;
 }
+#if HELMET_ENABLE_WIFI_FP
+// Wi-Fi fingerprint: in kết quả quét ra Serial (để thu dữ liệu huấn luyện) và gửi lên backend (để định vị).
+void publishWifiScan(int n) {
+    if (HELMET_WIFI_FP_SERIAL) {
+        String line = "SCAN";   // ghép xong mới in để không bị lẫn với log của luồng khác
+        line.reserve(32 * n + 8);
+        for (int i = 0; i < n; i++) {
+            line += ';'; line += WiFi.BSSIDstr(i); line += '='; line += WiFi.RSSI(i);
+        }
+        Serial.println(line);
+    }
+    if (!mqtt.connected()) return;
+    DynamicJsonDocument doc(4096);
+    JsonObject scan = doc.createNestedObject("scan");
+    int sent = 0;
+    for (int i = 0; i < n && sent < HELMET_WIFI_FP_MAX_APS; i++) {
+        uint8_t* bssid = WiFi.BSSID(i);
+        // Bỏ BSSID "locally administered" (hotspot điện thoại, SSID ảo); backend cũng lọc lại.
+        if (bssid == nullptr || (bssid[0] & 0x02)) continue;
+        scan[WiFi.BSSIDstr(i)] = WiFi.RSSI(i);
+        sent++;
+    }
+    doc["uptime_ms"] = millis();
+    char payload[2048];
+    const size_t size = serializeJson(doc, payload, sizeof(payload));
+    if (!mqtt.publish(wifiScanTopic, reinterpret_cast<uint8_t*>(payload), size, false))
+        Serial.println("WIFI_FP: scan send failed.");
+}
+// Quét bất đồng bộ, chỉ khi đã kết nối Wi-Fi (cùng điều kiện lúc thu dữ liệu và lúc chạy thật).
+void updateWifiFingerprint(uint32_t now, bool connected) {
+    static uint32_t lastScanStart = 0;
+    const int n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_RUNNING) return;
+    if (n >= 0) {
+        publishWifiScan(n);
+        WiFi.scanDelete();
+    }
+    if (!connected || now - lastScanStart < HELMET_WIFI_FP_INTERVAL_MS) return;
+    lastScanStart = now;
+    WiFi.scanNetworks(true, true, false, HELMET_WIFI_FP_MS_PER_CHANNEL);
+}
+#endif
 void networkTask(void*) {
     if (HELMET_ENABLE_GPS) gpsPort.begin(GPS_BAUD_RATE, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
     mqtt.setServer(HELMET_MQTT_HOST, HELMET_MQTT_PORT);
@@ -250,6 +292,9 @@ void networkTask(void*) {
                 }
             }
         }
+#if HELMET_ENABLE_WIFI_FP
+        updateWifiFingerprint(now, wifiStatus == WL_CONNECTED);
+#endif
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -263,10 +308,11 @@ void beginHelmetServices() {
     snprintf(alertTopic, sizeof(alertTopic), "helmet/device/%s/alert", HELMET_DEVICE_ID);
     snprintf(statusTopic, sizeof(statusTopic), "helmet/device/%s/status", HELMET_DEVICE_ID);
     snprintf(commandTopic, sizeof(commandTopic), "helmet/device/%s/command", HELMET_DEVICE_ID);
+    snprintf(wifiScanTopic, sizeof(wifiScanTopic), "helmet/device/%s/wifiscan", HELMET_DEVICE_ID);
     if (xTaskCreatePinnedToCore(networkTask, "helmet-network", 12288, nullptr, 1, nullptr, 0) != pdPASS)
         Serial.println("SERVICES_FAULT: network task allocation failed.");
-    Serial.printf("SERVICES: gas=%d gps=%d wear=%d sos=%d network_configured=%d\n",
-                  HELMET_ENABLE_GAS, HELMET_ENABLE_GPS, HELMET_ENABLE_WEAR, HELMET_ENABLE_SOS,
+    Serial.printf("SERVICES: gas=%d gps=%d wear=%d sos=%d wifi_fp=%d network_configured=%d\n",
+                  HELMET_ENABLE_GAS, HELMET_ENABLE_GPS, HELMET_ENABLE_WEAR, HELMET_ENABLE_SOS, HELMET_ENABLE_WIFI_FP,
                   strlen(HELMET_WIFI_SSID) && strlen(HELMET_MQTT_HOST) ? 1 : 0);
 }
 void updateHelmetSnapshot(const HelmetSnapshot& state) {

@@ -1437,6 +1437,109 @@ tbody tr:hover {
     color: var(--muted);
 }
 
+/* Card vị trí cao hơn trước: cho biểu đồ khí giãn theo chiều cao hàng để không bị khoảng trống */
+.air-quality-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.air-quality-card .air-quality-chart-container {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 180px;
+}
+
+/* Sơ đồ vị trí trong nhà (phòng 301 / hành lang) */
+.floor-plan {
+    margin: 14px 0 12px;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+}
+
+.floor-plan-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 200px;
+    font-family: inherit;
+}
+
+.zone-area rect,
+.zone-area polygon {
+    fill: var(--surface);
+    stroke: var(--text-secondary);
+    stroke-width: 1.5px;
+    vector-effect: non-scaling-stroke;
+    transition: fill 0.3s ease, stroke 0.3s ease;
+}
+
+.zone-area.is-active rect,
+.zone-area.is-active polygon {
+    fill: var(--accent-subtle);
+    stroke: var(--danger);
+    stroke-width: 2.5px;
+}
+
+.zone-label {
+    font-size: 46px;
+    font-weight: 600;
+    fill: var(--muted);
+    text-anchor: middle;
+    dominant-baseline: middle;
+}
+
+.zone-area.is-active .zone-label {
+    fill: var(--accent-dark);
+    font-weight: 800;
+}
+
+.floor-door {
+    fill: var(--surface);
+    stroke: var(--text-secondary);
+    stroke-width: 1.5px;
+    vector-effect: non-scaling-stroke;
+}
+
+.zone-marker {
+    display: none;
+}
+
+.zone-marker.is-active {
+    display: inline;
+}
+
+.marker-pulse {
+    fill: rgba(220, 38, 38, 0.22);
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: zone-marker-pulse 1.6s ease-out infinite;
+}
+
+.marker-ring {
+    fill: #ffffff;
+}
+
+.marker-dot {
+    fill: var(--danger);
+}
+
+.floor-plan.is-stale .zone-label {
+    fill: #94a3b8;
+}
+
+@keyframes zone-marker-pulse {
+    from { transform: scale(0.55); opacity: 1; }
+    to { transform: scale(1.35); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .marker-pulse {
+        animation: none;
+    }
+}
+
 .card-divider {
     border: none;
     border-top: 1px solid var(--border-subtle);

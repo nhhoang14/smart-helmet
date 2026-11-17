@@ -46,6 +46,24 @@
 #ifndef HELMET_BUZZER_PASSIVE
 #define HELMET_BUZZER_PASSIVE 1
 #endif
+// Định vị khu vực bằng Wi-Fi fingerprint (phòng 301 / hành lang): luồng mạng quét Wi-Fi,
+// gửi BSSID -> RSSI lên helmet/device/{id}/wifiscan và in "SCAN;..." để thu dữ liệu (tools/collect_wifi.py).
+#ifndef HELMET_ENABLE_WIFI_FP
+#define HELMET_ENABLE_WIFI_FP 1
+#endif
+#ifndef HELMET_WIFI_FP_INTERVAL_MS
+#define HELMET_WIFI_FP_INTERVAL_MS 3000UL
+#endif
+#ifndef HELMET_WIFI_FP_MS_PER_CHANNEL
+// Đổi số này thì phải thu lại dữ liệu huấn luyện.
+#define HELMET_WIFI_FP_MS_PER_CHANNEL 120
+#endif
+#ifndef HELMET_WIFI_FP_MAX_APS
+#define HELMET_WIFI_FP_MAX_APS 40
+#endif
+#ifndef HELMET_WIFI_FP_SERIAL
+#define HELMET_WIFI_FP_SERIAL 1
+#endif
 #define PIN_MQ135_ANALOG 34
 #define PIN_MQ135_DIGITAL HELMET_GAS_DIGITAL_PIN
 #ifndef HELMET_WEAR_PIN

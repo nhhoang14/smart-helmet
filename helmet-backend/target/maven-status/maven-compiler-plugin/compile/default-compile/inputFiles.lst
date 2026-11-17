@@ -1,54 +1,60 @@
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/HelmetApplication.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/config/CorsConfig.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/config/DataInitializer.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/config/PasswordConfig.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/config/WebAuthInterceptor.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/config/WebMvcConfig.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/config/WebSocketConfig.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/controller/AlertController.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/controller/AuthController.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/controller/CommandController.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/controller/DashboardController.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/controller/DeviceController.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/controller/SettingsController.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/controller/TelemetryController.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/controller/UserController.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/dto/AlertDto.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/dto/ApiResponse.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/dto/CommandRequest.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/dto/DeviceStateDto.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/dto/EventMessage.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/dto/SettingsDto.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/dto/StateMessage.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/dto/TelemetryMessage.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/dto/ThresholdSettingsDto.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/model/Alert.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/model/AlertSeverity.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/model/AlertStatus.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/model/AlertType.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/model/Device.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/model/DeviceCommand.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/model/DeviceSettings.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/model/Telemetry.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/model/ThresholdSettings.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/model/User.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/mqtt/MqttClientService.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/mqtt/MqttCommandPublisher.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/mqtt/MqttInboundHandler.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/realtime/RealtimePublisher.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/repository/AlertRepository.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/repository/DeviceCommandRepository.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/repository/DeviceRepository.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/repository/DeviceSettingsRepository.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/repository/TelemetryRepository.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/repository/ThresholdSettingsRepository.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/repository/UserRepository.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/AlertService.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/CommandService.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/DeviceService.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/DeviceStateService.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/OfflineWatchdog.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/SettingsService.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/TelemetryService.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/TelemetrySimulator.java
-/Users/mac/smart-helmet/helmet-backend/src/main/java/com/helmet/service/UserService.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\config\CorsConfig.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\config\DataInitializer.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\config\PasswordConfig.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\config\WebAuthInterceptor.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\config\WebMvcConfig.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\config\WebSocketConfig.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\controller\AlertController.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\controller\AuthController.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\controller\CommandController.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\controller\DashboardController.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\controller\DeviceController.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\controller\LocationController.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\controller\SettingsController.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\controller\TelemetryController.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\controller\UserController.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\controller\WifiFingerprintController.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\AlertDto.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\ApiResponse.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\CommandRequest.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\DeviceStateDto.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\EventMessage.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\LocationMessage.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\SettingsDto.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\StateMessage.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\TelemetryMessage.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\ThresholdSettingsDto.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\dto\WifiScanMessage.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\HelmetApplication.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\model\Alert.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\model\AlertSeverity.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\model\AlertStatus.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\model\AlertType.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\model\Device.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\model\DeviceCommand.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\model\DeviceSettings.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\model\Telemetry.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\model\ThresholdSettings.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\model\User.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\mqtt\MqttClientService.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\mqtt\MqttCommandPublisher.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\mqtt\MqttInboundHandler.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\realtime\RealtimePublisher.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\repository\AlertRepository.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\repository\DeviceCommandRepository.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\repository\DeviceRepository.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\repository\DeviceSettingsRepository.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\repository\TelemetryRepository.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\repository\ThresholdSettingsRepository.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\repository\UserRepository.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\AlertService.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\CommandService.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\DeviceService.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\DeviceStateService.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\LocationService.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\OfflineWatchdog.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\SettingsService.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\TelemetryService.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\TelemetrySimulator.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\UserService.java
+C:\Users\Ha Duy Khanh\OneDrive\Desktop\smart-helmet\helmet-backend\src\main\java\com\helmet\service\WifiFingerprintService.java

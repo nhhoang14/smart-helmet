@@ -69,3 +69,22 @@ Mở tệp `src/config.h` và cập nhật thông số mạng:
 pio run -e esp32dev -t upload
 pio device monitor -e esp32dev -b 115200
 ```
+
+## Định vị trong nhà theo khu vực (Wi-Fi fingerprint)
+
+Dashboard hiển thị sơ đồ **Phòng 301 / Hành lang**; khu vực có mũ sẽ sáng lên.
+
+1. Mũ (firmware `src/main.cpp`) quét Wi-Fi mỗi 3 giây khi đã kết nối Wi-Fi, gửi `{"scan":{BSSID:RSSI}}` lên MQTT `helmet/device/{uid}/wifiscan` và in dòng `SCAN;...` ra Serial.
+2. Backend (`WifiFingerprintService`) so bản quét với `helmet-backend/data/wifi_train.csv` bằng kNN (k=5), làm mượt 3 lần quét, rồi đẩy `zone` lên dashboard qua WebSocket.
+
+Thu dữ liệu huấn luyện (mũ cắm USB, đã đóng Serial Monitor, nhãn = mã khu vực trên sơ đồ):
+
+```
+python tools/collect_wifi.py COM3 phong_301 30 helmet-backend/data/wifi_train.csv
+python tools/collect_wifi.py COM3 hanh_lang 30 helmet-backend/data/wifi_train.csv
+```
+
+Nạp lại dữ liệu không cần khởi động lại backend: `POST /api/wifi-fingerprint/reload`; xem trạng thái: `GET /api/wifi-fingerprint/status`.
+Đo độ chính xác giữa các buổi: `python tools/eval_wifi.py buoi1.csv buoi2.csv buoi3.csv` (file cuối dùng để kiểm tra).
+
+Khi chạy với mũ thật, đặt `helmet.simulation.enabled: false` trong `application.yml`, nếu không bộ giả lập sẽ ghi đè số liệu và vị trí.
