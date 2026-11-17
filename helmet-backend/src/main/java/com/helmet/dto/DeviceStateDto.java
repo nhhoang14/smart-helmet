@@ -75,6 +75,23 @@ public class DeviceStateDto {
     @JsonProperty("last_lng")
     private Double lastLng;
 
+    // Vị trí trong nhà theo khu vực (Wi-Fi fingerprint): phong_301, hanh_lang, unknown
+    @JsonProperty("zone")
+    private String zone;
+
+    @JsonProperty("zone_source")
+    private String zoneSource;
+
+    @JsonProperty("zone_rssi")
+    private Map<String, Object> zoneRssi;
+
+    @JsonProperty("zone_confidence")
+    private Double zoneConfidence;
+
+    // Epoch millis lúc backend nhận bản tin vị trí gần nhất
+    @JsonProperty("zone_updated_at")
+    private Long zoneUpdatedAt;
+
     @JsonProperty("last_seen_at")
     private Instant lastSeenAt;
 

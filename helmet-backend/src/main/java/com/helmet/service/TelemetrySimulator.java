@@ -1,5 +1,6 @@
 package com.helmet.service;
 
+import com.helmet.dto.LocationMessage;
 import com.helmet.dto.TelemetryMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,10 +17,14 @@ public class TelemetrySimulator {
     private static final Logger log = LoggerFactory.getLogger(TelemetrySimulator.class);
 
     private final TelemetryService telemetryService;
+    private final LocationService locationService;
     private final Random random = new Random();
 
     @Value("${helmet.simulation.enabled:true}")
     private boolean enabled;
+
+    @Value("${helmet.simulation.zone-enabled:true}")
+    private boolean zoneEnabled;
 
     @Value("${helmet.default-device-id:HELMET_001}")
     private String defaultDeviceId;
@@ -27,8 +32,9 @@ public class TelemetrySimulator {
     private double currentGas = 185.0;
     private int stepCount = 0;
 
-    public TelemetrySimulator(TelemetryService telemetryService) {
+    public TelemetrySimulator(TelemetryService telemetryService, LocationService locationService) {
         this.telemetryService = telemetryService;
+        this.locationService = locationService;
     }
 
     @Scheduled(fixedDelayString = "${helmet.simulation.interval-ms:2000}")
@@ -87,5 +93,13 @@ public class TelemetrySimulator {
 
         // Chỉ giả lập một thiết bị khi chưa có phần cứng thật.
         telemetryService.processTelemetry(defaultDeviceId, msg);
+
+        // Giả lập vị trí khu vực: cứ 10 chu kỳ (~20 giây) đổi giữa phòng 301 và hành lang
+        if (zoneEnabled) {
+            LocationMessage loc = new LocationMessage();
+            loc.setZone((stepCount / 10) % 2 == 0 ? "phong_301" : "hanh_lang");
+            loc.setSource("simulation");
+            locationService.processLocation(defaultDeviceId, loc);
+        }
     }
 }

@@ -4,6 +4,15 @@ server:
 spring:
   application:
     name: helmet-backend
+  # Gắn mã băm nội dung vào link CSS/JS (vd: /css/helmet-3fa2c1.css) để trình duyệt
+  # luôn tải bản mới sau mỗi lần build, không dùng lại bản cũ trong bộ nhớ đệm.
+  web:
+    resources:
+      chain:
+        strategy:
+          content:
+            enabled: true
+            paths: /**
   datasource:
     url: jdbc:mysql://localhost:3306/helmet_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true
     username: root
@@ -31,9 +40,12 @@ mqtt:
     - "helmet/device/+/alert"
     - "helmet/device/+/status"
     - "helmet/device/+/state"
+    - "helmet/device/+/location"
+    - "helmet/device/+/wifiscan"
     - "helmet/+/telemetry"
     - "helmet/+/event"
     - "helmet/+/status"
+    - "helmet/+/location"
 
 # Helmet IoT Settings
 helmet:
@@ -43,6 +55,21 @@ helmet:
     # Tự động giả lập dữ liệu thực tế đẩy vào DB và WebSocket khi không có phần cứng ESP32 thật
     enabled: true
     interval-ms: 2000
+    # Giả lập vị trí khu vực (phòng 301 / hành lang) để xem sơ đồ khi chưa có mũ thật.
+    # Khi chạy với mũ thật: đặt enabled (ở trên) thành false để không ghi đè số liệu và vị trí thật.
+    zone-enabled: true
+  # Định vị khu vực bằng Wi-Fi fingerprint (mũ gửi bản quét lên topic helmet/device/{uid}/wifiscan)
+  wifi-fingerprint:
+    enabled: true
+    # CSV "ts,label,bssid,rssi" từ tools/collect_wifi.py; label = mã khu vực (phong_301, hanh_lang).
+    # Đường dẫn tính từ thư mục chạy lệnh java (thường là helmet-backend/).
+    train-file: "data/wifi_train.csv"
+    k: 5
+    floor-dbm: -90
+    # Khoảng cách tới mẫu gần nhất lớn hơn số này -> "unknown". 0 = tắt. Chỉnh sau khi có dữ liệu.
+    unknown-distance: 0
+    # Lấy đa số của N lần quét gần nhất (mỗi lần ~3 giây)
+    smoothing-window: 3
 
 logging:
   level:

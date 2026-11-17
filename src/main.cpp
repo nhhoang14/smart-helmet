@@ -23,6 +23,7 @@ unsigned long lastTelemetryPublish = 0;
 unsigned long lastMqttAttempt = 0;
 unsigned long lastWifiAttempt = 0;
 unsigned long lastWifiGeoAttempt = 0;
+unsigned long lastWifiScanStart = 0;
 const unsigned long SERIAL_PRINT_INTERVAL = 1000;
 
 // Vị trí định vị qua Wi-Fi (indoor fallback)
@@ -213,6 +214,59 @@ void publishTelemetry() {
 }
 
 // ==========================================
+// ĐỊNH VỊ KHU VỰC BẰNG WI-FI FINGERPRINT
+// ==========================================
+
+// Gửi kết quả một lần quét: in ra Serial (để thu dữ liệu) và publish lên backend (để định vị)
+void publishWifiScan(int n) {
+#if WIFI_SCAN_DEBUG_SERIAL
+    Serial.print(F("SCAN"));
+    for (int i = 0; i < n; i++) {
+        Serial.printf(";%s=%d", WiFi.BSSIDstr(i).c_str(), WiFi.RSSI(i));
+    }
+    Serial.println();
+#endif
+
+    if (!mqttClient.connected()) return;
+
+    DynamicJsonDocument doc(4096);
+    JsonObject scan = doc.createNestedObject("scan");
+    int sent = 0;
+    for (int i = 0; i < n && sent < WIFI_SCAN_MAX_APS; i++) {
+        uint8_t* bssid = WiFi.BSSID(i);
+        // Bỏ BSSID "locally administered" (hotspot điện thoại, SSID ảo) - backend cũng lọc lại
+        if (bssid == nullptr || (bssid[0] & 0x02)) continue;
+        scan[WiFi.BSSIDstr(i)] = WiFi.RSSI(i);
+        sent++;
+    }
+    doc["ts"] = millis() / 1000UL;
+
+    String payload;
+    serializeJson(doc, payload);
+    if (!mqttClient.publish(TOPIC_WIFISCAN, payload.c_str())) {
+        Serial.printf("[WIFI-FP] Gửi scan thất bại (%u byte)\n", payload.length());
+    }
+}
+
+// Quét Wi-Fi bất đồng bộ để không chặn loop() (đọc cảm biến, còi vẫn chạy trong lúc quét)
+void handleWifiFingerprint() {
+#if WIFI_FINGERPRINT_ENABLED
+    int n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_RUNNING) return;
+    if (n >= 0) {
+        publishWifiScan(n);
+        WiFi.scanDelete();
+    }
+
+    if (WiFi.status() != WL_CONNECTED) return;
+    unsigned long now = millis();
+    if (now - lastWifiScanStart < WIFI_SCAN_INTERVAL_MS) return;
+    lastWifiScanStart = now;
+    WiFi.scanNetworks(true, true, false, WIFI_SCAN_MS_PER_CHANNEL);  // async, gồm cả mạng ẩn
+#endif
+}
+
+// ==========================================
 // XỬ LÝ LỆNH TỪ WEB BACKEND (MQTT COMMAND)
 // ==========================================
 
@@ -369,7 +423,7 @@ void setup() {
     // Cấu hình MQTT
     mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
     mqttClient.setCallback(onMqttMessage);
-    mqttClient.setBufferSize(512);
+    mqttClient.setBufferSize(2048);   // bản tin wifiscan có thể tới ~1.2KB
     WiFi.setAutoReconnect(true);
 
     // Bíp test còi lúc khởi động
@@ -383,6 +437,9 @@ void setup() {
 void loop() {
     // 1. Đọc luồng GPS NMEA từ UART2
     readGps();
+
+    // 1b. Quét Wi-Fi để định vị khu vực (phòng 301 / hành lang)
+    handleWifiFingerprint();
 
     // 2. Cập nhật cảm biến khí MQ-135 và còi
     mq135.update();

@@ -294,6 +294,91 @@
     drawAirQuality();
     window.addEventListener('resize', drawAirQuality);
 
+    // ── Sơ đồ vị trí trong nhà (khu vực từ Wi-Fi fingerprint) ─────────────────
+    // Backend gửi trong bản state: zone, zone_source, zone_confidence, zone_rssi, zone_updated_at (epoch ms).
+    // Quá ZONE_STALE_MS không có bản tin vị trí mới thì coi là mất tín hiệu.
+    const ZONE_STALE_MS = 15000;
+    const floorPlan = document.getElementById('floor-plan');
+    const zoneNameEl = document.getElementById('zone-name');
+    const zoneDetailEl = document.getElementById('zone-detail');
+    let currentZone = floorPlan?.dataset.zone || 'unknown';
+    let zoneSource = floorPlan?.dataset.source || '';
+    let zoneRssi = null;
+    let zoneConfidence = null;
+    let lastZoneStamp = floorPlan?.dataset.zoneUpdated ? Number(floorPlan.dataset.zoneUpdated) : null;
+    let lastZoneReceivedAt = null; // tính theo đồng hồ trình duyệt để không lệch giờ với server
+    const initialZoneAge = Number(floorPlan?.dataset.zoneAge);
+    if (lastZoneStamp !== null && Number.isFinite(initialZoneAge) && initialZoneAge >= 0) {
+        lastZoneReceivedAt = Date.now() - initialZoneAge;
+    }
+
+    function zoneLabel(zone) {
+        if (!floorPlan || !zone) return null;
+        const area = floorPlan.querySelector(`.zone-area[data-zone="${CSS.escape(zone)}"]`);
+        return area ? area.dataset.label : null;
+    }
+
+    function renderZone() {
+        if (!floorPlan) return;
+        const age = lastZoneReceivedAt === null ? null : Date.now() - lastZoneReceivedAt;
+        const fresh = age !== null && age < ZONE_STALE_MS;
+        const label = zoneLabel(currentZone);
+        const active = fresh && label ? currentZone : null;
+
+        floorPlan.querySelectorAll('[data-zone]').forEach((el) => {
+            if (el === floorPlan) return;
+            el.classList.toggle('is-active', el.dataset.zone === active);
+        });
+        floorPlan.classList.toggle('is-stale', !fresh);
+        // Đưa khu vực đang sáng lên trên để viền đỏ không bị tường khu vực bên cạnh che
+        const activeArea = active ? floorPlan.querySelector(`.zone-area[data-zone="${CSS.escape(active)}"]`) : null;
+        const door = floorPlan.querySelector('.floor-door');
+        if (activeArea && door && activeArea.nextElementSibling !== door) {
+            door.parentNode.insertBefore(activeArea, door);
+        }
+
+        if (zoneNameEl) {
+            if (age === null) zoneNameEl.textContent = 'Chưa có dữ liệu vị trí';
+            else if (!fresh) zoneNameEl.textContent = 'Mất tín hiệu vị trí';
+            else zoneNameEl.textContent = label || 'Chưa xác định khu vực';
+        }
+        if (zoneDetailEl) {
+            const parts = [zoneSource === 'simulation' ? 'Dữ liệu giả lập' : 'Định vị Wi-Fi fingerprint'];
+            if (fresh && typeof zoneConfidence === 'number') {
+                parts.push(`tin cậy ${Math.round(zoneConfidence * 100)}%`);
+            }
+            if (zoneRssi && typeof zoneRssi === 'object') {
+                const rssiText = Object.entries(zoneRssi)
+                    .filter(([, v]) => Number(v) > -100)
+                    .map(([k, v]) => `${k} ${v} dBm`)
+                    .join(', ');
+                if (rssiText) parts.push(rssiText);
+            }
+            if (age !== null) {
+                const sec = Math.round(age / 1000);
+                parts.push(sec <= 1 ? 'vừa cập nhật' : (fresh ? `${sec} giây trước` : `lần cuối ${sec} giây trước`));
+            }
+            zoneDetailEl.textContent = parts.join(' · ');
+        }
+    }
+
+    function updateZone(data) {
+        if (typeof data.zone !== 'string') return;
+        const stamp = data.zone_updated_at ?? data.zoneUpdatedAt ?? null;
+        // Bản state phát kèm telemetry lặp lại zone cũ: chỉ coi là mới khi mốc thời gian đổi
+        if (stamp !== null && stamp === lastZoneStamp) return;
+        lastZoneStamp = stamp;
+        lastZoneReceivedAt = Date.now();
+        currentZone = data.zone;
+        zoneSource = data.zone_source ?? data.zoneSource ?? '';
+        zoneRssi = data.zone_rssi ?? data.zoneRssi ?? null;
+        zoneConfidence = data.zone_confidence ?? data.zoneConfidence ?? null;
+        renderZone();
+    }
+
+    renderZone();
+    setInterval(renderZone, 1000);
+
     // ── WebSocket ─────────────────────────────────────────────────────────────
     const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
     socket.addEventListener('open', function () {
@@ -335,20 +420,8 @@
                 updateFallCard(true, timeStr);
             }
 
-            // 5. Cập nhật vị trí GPS/Wi-Fi
-            const lat = data.lastLat ?? data.latitude ?? data.lat ?? data.gps?.latitude;
-            const lng = data.lastLng ?? data.longitude ?? data.lng ?? data.gps?.longitude;
-            const source = data.location_source ?? data.source ?? data.gps?.source ?? (data.gps?.fix ? 'gps' : 'wifi');
-            if (typeof lat === 'number' && typeof lng === 'number' && lat !== 0) {
-                const coordsEl = document.getElementById('location-coords');
-                if (coordsEl) coordsEl.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-                const sourceEl = document.getElementById('location-source');
-                if (sourceEl) {
-                    sourceEl.textContent = (source === 'gps' || data.gps?.fix === true)
-                        ? 'GPS ngoài trời · NEO-6M'
-                        : 'Định vị Wi-Fi · Trong nhà';
-                }
-            }
+            // 5. Vị trí trong nhà theo khu vực (phòng 301 / hành lang)
+            updateZone(data);
 
             // 6. Trạng thái còi
             if (typeof data.buzzerOn === 'boolean') {

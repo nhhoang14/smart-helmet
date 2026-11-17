@@ -39,9 +39,9 @@
 // ==========================================
 // 2. KẾT NỐI MẠNG & MQTT (Mục 3.4)
 // ==========================================
-#define WIFI_SSID           "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD       "YOUR_WIFI_PASSWORD"
-#define MQTT_BROKER         "192.168.1.100"
+#define WIFI_SSID           "nhhoang"
+#define WIFI_PASSWORD       "hg123456"
+#define MQTT_BROKER         "10.72.117.217"
 #define MQTT_PORT           1883
 #define MQTT_USERNAME       ""
 #define MQTT_PASSWORD       ""
@@ -55,6 +55,7 @@
 #define TOPIC_STATUS        "helmet/device/" DEVICE_UID "/status"
 #define TOPIC_STATE         "helmet/device/" DEVICE_UID "/state"
 #define TOPIC_COMMAND       "helmet/device/" DEVICE_UID "/command"
+#define TOPIC_WIFISCAN      "helmet/device/" DEVICE_UID "/wifiscan"
 
 #define MQTT_RECONNECT_INTERVAL_MS 5000UL
 #define TELEMETRY_INTERVAL_MS      3000UL  // Định kỳ 3 giây gửi telemetry
@@ -66,6 +67,18 @@
 // Khi ở trong nhà hoặc NEO-6M chưa bắt được vệ tinh, sử dụng tọa độ Wi-Fi
 #define DEFAULT_WIFI_LAT            21.028511
 #define DEFAULT_WIFI_LNG            105.854167
+
+// ==========================================
+// 3b. ĐỊNH VỊ TRONG NHÀ THEO KHU VỰC BẰNG WI-FI FINGERPRINT (phòng 301 / hành lang)
+// ==========================================
+// Mũ quét các điểm phát Wi-Fi xung quanh rồi gửi danh sách BSSID -> RSSI lên backend.
+// Backend so với dữ liệu huấn luyện (kNN) để ra khu vực. Chỉ quét khi đã kết nối Wi-Fi,
+// nên dữ liệu thu để huấn luyện và lúc chạy thật cùng một điều kiện.
+#define WIFI_FINGERPRINT_ENABLED    1
+#define WIFI_SCAN_INTERVAL_MS       3000UL  // bắt đầu một lần quét mới mỗi 3 giây
+#define WIFI_SCAN_MS_PER_CHANNEL    120     // thời gian nghe mỗi kênh (ms); đổi số này phải thu lại dữ liệu
+#define WIFI_SCAN_MAX_APS           40      // số BSSID tối đa gửi mỗi lần
+#define WIFI_SCAN_DEBUG_SERIAL      1       // in "SCAN;BSSID=RSSI;..." ra Serial để thu dữ liệu bằng tools/collect_wifi.py
 
 // ==========================================
 // 4. CẤU HÌNH THỜI GIAN & LỌC TÍN HIỆU
