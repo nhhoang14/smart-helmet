@@ -53,7 +53,7 @@ helmet:
   offline-check-interval-ms: 5000
   simulation:
     # Mũ 001 nhận dữ liệu thật từ ESP32; mũ 002 phát dữ liệu mô phỏng.
-    enabled: true
+    enabled: false
     interval-ms: 2000
     # Giả lập vị trí khu vực (phòng 301 / hành lang) để xem sơ đồ khi chưa có mũ thật.
     # Khi chạy với mũ thật: đặt enabled (ở trên) thành false để không ghi đè số liệu và vị trí thật.
