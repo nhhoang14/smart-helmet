@@ -66,7 +66,7 @@ public class TelemetryService {
         device.setLastSeenAt(now);
 
         Boolean isWorn = msg.getWornStatus();
-        Double gas = msg.getGasPpm() != null ? msg.getGasPpm() : 0.0;
+        Double gas = msg.getGasPpm();
         Double accMagnitude = msg.getAccMagnitude() != null ? msg.getAccMagnitude() : 1.0;
         Double lat = msg.getLatitude();
         Double lng = msg.getLongitude();
@@ -86,7 +86,11 @@ public class TelemetryService {
         // DeviceStateService)
         DeviceStateDto state = deviceStateService.updateDeviceState(deviceUid, s -> {
             s.setOnline(true);
-            s.setWorn(Boolean.TRUE.equals(isWorn));
+            if (isWorn != null) s.setWorn(isWorn);
+            s.setWornKnown(msg.getWornKnown());
+            s.setGasReady(msg.getGasReady());
+            s.setGasWarmupRemaining(msg.getGasWarmupRemaining());
+            s.setFallState(msg.getFallState());
             if (msg.getBuzzerOn() != null) {
                 s.setBuzzerOn(msg.getBuzzerOn());
                 s.setBuzzerState(msg.getBuzzerOn() ? "ON" : "OFF");
@@ -99,8 +103,8 @@ public class TelemetryService {
                 s.setLastLng(lng);
             s.setLastSeenAt(now);
 
-            Map<String, Object> sensors = new HashMap<>();
-            sensors.put("gas_ppm", gas);
+            Map<String, Object> sensors = msg.getSensors() != null ? new HashMap<>(msg.getSensors()) : new HashMap<>();
+            if (gas != null) sensors.put("gas_ppm", gas);
             sensors.put("acc_magnitude", accMagnitude);
             s.setSensors(sensors);
 
@@ -114,10 +118,16 @@ public class TelemetryService {
             s.setGps(gps);
         });
 
+        if (msg.getAcknowledgedFallId() != null && !msg.getAcknowledgedFallId().isBlank()) {
+            alertService.acknowledgeFallFromDevice(deviceUid, msg.getAcknowledgedFallId());
+        }
+
         // 3. Server chỉ tiếp nhận trạng thái ngã từ MPU6050 và thông số PPM từ MQ-135.
         // Logic xem ngưỡng và báo còi do thiết bị ESP32 tự xử lý cục bộ.
         // Khi thiết bị phát hiện té ngã hoặc trong ngưỡng cảnh báo, server ghi nhận và cập nhật vị trí.
-        if (Boolean.TRUE.equals(msg.getFall())) {
+        // Firmware V2 sends one confirmed FALL on the alert topic. Its repeated
+        // telemetry describes the current state and must not create new alerts.
+        if (!msg.hasFirmwareFallDetection() && Boolean.TRUE.equals(msg.getFall())) {
             alertService.handleEventWithValue(deviceUid, "FALL", accMagnitude, lat, lng,
                     "Phát hiện sự cố té ngã từ cảm biến MPU6050!", msg.resolveLocationSource());
         }
@@ -126,11 +136,12 @@ public class TelemetryService {
         ThresholdSettings settings = settingsService.getThresholds(deviceUid);
         Instant lastSaved = lastSavedTimeMap.getOrDefault(deviceUid, Instant.EPOCH);
         long elapsedSec = java.time.Duration.between(lastSaved, now).toSeconds();
-        boolean isExceeded = gas >= (settings.getGasWarn() != null ? settings.getGasWarn() : 300.0);
+        boolean isExceeded = gas != null && gas >= (settings.getGasWarn() != null ? settings.getGasWarn() : 300.0);
 
         int sampleSec = settings.getTelemetrySampleSec() != null ? settings.getTelemetrySampleSec() : 5;
-        if (isExceeded || elapsedSec >= sampleSec) {
-            saveTelemetryRecord(device, gas, accMagnitude, isWorn, lat, lng, gpsFix, recordedAt);
+        if (gas != null && (isExceeded || elapsedSec >= sampleSec)) {
+            saveTelemetryRecord(device, gas, accMagnitude, isWorn, lat, lng, gpsFix, recordedAt,
+                    Boolean.TRUE.equals(msg.getFall()));
             lastSavedTimeMap.put(deviceUid, now);
         }
 
@@ -141,7 +152,7 @@ public class TelemetryService {
     }
 
     private void saveTelemetryRecord(Device device, Double gas, Double acc, Boolean isWorn,
-            Double lat, Double lng, Boolean gpsFix, Instant recordedAt) {
+            Double lat, Double lng, Boolean gpsFix, Instant recordedAt, boolean fall) {
         Telemetry t = Telemetry.builder()
                 .deviceId(device.getId())
                 .deviceUid(device.getUid())
@@ -151,7 +162,7 @@ public class TelemetryService {
                 .latitude(lat)
                 .longitude(lng)
                 .gpsFix(Boolean.TRUE.equals(gpsFix))
-                .fallState(false)
+                .fallState(fall)
                 .logTime(recordedAt)
                 .createdAt(Instant.now())
                 .build();

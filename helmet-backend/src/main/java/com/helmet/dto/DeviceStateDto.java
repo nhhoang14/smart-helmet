@@ -38,6 +38,15 @@ public class DeviceStateDto {
     @JsonProperty("is_worn")
     private boolean isWorn = false;
 
+    @JsonProperty("worn_known")
+    private Boolean wornKnown;
+    @JsonProperty("gas_ready")
+    private Boolean gasReady;
+    @JsonProperty("gas_warmup_remaining")
+    private Integer gasWarmupRemaining;
+    @JsonProperty("fall_state")
+    private String fallState;
+
     @Builder.Default
     @JsonProperty("alert_level")
     private String alertLevel = "NORMAL"; // NORMAL, WARNING, DANGER

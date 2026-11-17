@@ -122,7 +122,17 @@
 
     function updateAirQuality(data) {
         const sensors = data.sensors || {};
-        const raw = data.gasPpm ?? data.gas ?? sensors.gas_ppm ?? sensors.gas;
+        const raw = data.gas_ppm ?? data.gasPpm ?? data.gas ?? sensors.gas_ppm ?? sensors.gas;
+        if (data.gas_ready === false) {
+            const text = `Đang làm nóng cảm biến (${data.gas_warmup_remaining ?? 0}s)`;
+            if (airQualityNumber) airQualityNumber.textContent = '—';
+            const stat = document.getElementById('gas-stat');
+            const label = document.getElementById('gas-label');
+            if (stat) stat.textContent = '—';
+            if (label) { label.textContent = text; label.className = 'text-warn'; }
+            if (chartEmpty) { chartEmpty.hidden = false; chartEmpty.textContent = text; }
+            return;
+        }
         const value = Number(raw);
         if (!Number.isFinite(value) || value <= 0) return;
         airQualityValues.push(value);
@@ -185,6 +195,7 @@
     });
 
     function renderGroupedAlerts() {
+        updateFallCard(alertItems.some(item => item.type === 'FALL'));
         const list = document.getElementById('recent-alerts-list');
         const empty = document.getElementById('recent-alerts-empty');
         if (!list) return;
@@ -365,27 +376,30 @@
         if (!body) return;
         try {
             const data = JSON.parse(body.replace(/\0$/, ''));
+            const uid = data.device_uid ?? data.deviceUid ?? data.device_id;
+            if (uid && uid !== device) return;
 
             // 1. Biểu đồ & nồng độ khí
             updateAirQuality(data);
 
             // 2. Trạng thái Online & thời gian cập nhật
-            if (typeof data.isOnline === 'boolean' || typeof data.status === 'string') {
-                const online = data.isOnline ?? data.status === 'ONLINE';
+            if (typeof data.is_online === 'boolean' || typeof data.isOnline === 'boolean' || ['ONLINE', 'OFFLINE'].includes(data.status)) {
+                const online = data.is_online ?? data.isOnline ?? (data.status === 'ONLINE');
                 updateOnlineStatus(online);
             }
             updateLastSeen();
 
             // 3. Tình trạng đội mũ
-            if (typeof data.isWorn === 'boolean') {
+            const worn = data.is_worn ?? data.isWorn ?? data.worn;
+            if (typeof worn === 'boolean' || data.worn_known === false) {
                 const wornEl = document.getElementById('worn-stat');
                 const subEl = document.getElementById('worn-subtext');
-                if (wornEl) wornEl.textContent = data.isWorn ? 'Đang đội' : 'Không đội';
-                if (subEl) subEl.textContent = data.isWorn ? 'Cảm biến đội mũ hoạt động' : 'Chưa đội mũ';
+                if (wornEl) wornEl.textContent = data.worn_known === false ? 'Chưa xác định' : (worn ? 'Đang đội mũ' : 'Chưa đội mũ');
+                if (subEl) subEl.textContent = data.worn_known === false ? 'Chưa bật cảm biến đội mũ' : (worn ? 'Công tắc đang bật' : 'Công tắc đang tắt');
             }
 
             // 4. Phát hiện té ngã
-            const isFall = data.type === 'FALL' || data.alert_type === 'FALL' || (data.alertLevel === 'DANGER' && String(data.type).includes('FALL'));
+            const isFall = (data.type === 'FALL' || data.alert_type === 'FALL') && !['ACKNOWLEDGED', 'RESOLVED'].includes(data.status);
             if (isFall) {
                 const now = new Date();
                 const pad = (n) => String(n).padStart(2, '0');

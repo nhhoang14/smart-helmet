@@ -261,6 +261,38 @@ public class AlertService {
         return result.map(AlertDto::fromEntity);
     }
 
+    @Transactional
+    public Alert handleFirmwareEvent(String deviceUid, String type, Double value, Double lat, Double lng,
+                                     String message, String locationSource, String eventId) {
+        if (eventId != null && !eventId.isBlank()) {
+            Optional<Alert> existing = alertRepository.findByDeviceUidAndSourceEventId(deviceUid, eventId);
+            if (existing.isPresent()) return existing.get();
+        }
+        Alert alert = handleEventWithValue(deviceUid, type, value, lat, lng, message, locationSource);
+        alert.setSourceEventId(eventId);
+        return alertRepository.save(alert);
+    }
+
+    /** Local acknowledgement preserves history and never sends a mute command back to the device. */
+    @Transactional
+    public void acknowledgeFallFromDevice(String deviceUid, String relatedFallId) {
+        List<Alert> pending = alertRepository.findByDeviceUidAndStatusAndType(deviceUid, AlertStatus.NEW, AlertType.FALL);
+        for (Alert alert : pending) {
+            // A repeated acknowledgement must not clear a newer fall episode.
+            if (alert.getSourceEventId() != null && !alert.getSourceEventId().equals(relatedFallId)) continue;
+            alert.setStatus(AlertStatus.ACKNOWLEDGED);
+            alert.setAcknowledgedAt(Instant.now());
+            Alert saved = alertRepository.save(alert);
+            realtimePublisher.publishAlert(AlertDto.fromEntity(saved));
+        }
+        boolean hasPending = pending.stream().anyMatch(a -> a.getStatus() == AlertStatus.NEW);
+        if (!pending.isEmpty() && !hasPending) {
+            deviceStateService.removeActiveAlert(deviceUid, AlertType.FALL);
+            deviceStateService.updateDeviceState(deviceUid, s -> s.setFallState("MONITORING"));
+        }
+        realtimePublisher.publishState(deviceUid, deviceStateService.getDeviceState(deviceUid));
+    }
+
     public List<AlertDto> getDeviceAlerts(String deviceUid) {
         return alertRepository.findByDeviceUidOrderByOccurredAtDesc(deviceUid).stream()
                 .map(AlertDto::fromEntity)

@@ -13,6 +13,8 @@ import java.util.List;
 @Repository
 public interface AlertRepository extends JpaRepository<Alert, Long> {
 
+    java.util.Optional<Alert> findByDeviceUidAndSourceEventId(String deviceUid, String sourceEventId);
+
     List<Alert> findByDeviceUidAndStatusAndType(String deviceUid, AlertStatus status, AlertType type);
 
     List<Alert> findByDeviceUidOrderByOccurredAtDesc(String deviceUid);

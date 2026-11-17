@@ -27,6 +27,19 @@ public class TelemetryMessage {
     private Double gas;
     private Boolean worn;
     private Boolean fall;
+    private Boolean simulation;
+    @JsonProperty("fall_detection")
+    private String fallDetection;
+    @JsonProperty("worn_known")
+    private Boolean wornKnown;
+    @JsonProperty("gas_ready")
+    private Boolean gasReady;
+    @JsonProperty("gas_warmup_remaining")
+    private Integer gasWarmupRemaining;
+    @JsonProperty("fall_state")
+    private String fallState;
+    @JsonProperty("acknowledged_fall_id")
+    private String acknowledgedFallId;
     private Double lat;
     private Double lng;
     private Long ts;
@@ -94,9 +107,14 @@ public class TelemetryMessage {
     }
 
     public Boolean getWornStatus() {
+        if (Boolean.FALSE.equals(wornKnown)) return null;
         if (isWorn != null) return isWorn;
         if (worn != null) return worn;
         return true;
+    }
+
+    public boolean hasFirmwareFallDetection() {
+        return "firmware_v2".equals(fallDetection);
     }
 
     public Long getTimestampEpoch() {

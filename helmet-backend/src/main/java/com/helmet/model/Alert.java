@@ -42,6 +42,9 @@ public class Alert {
     @Column(length = 255)
     private String message;
 
+    @Column(name = "source_event_id", length = 40)
+    private String sourceEventId;
+
     @Column(name = "latitude")
     private Double latitude;
 

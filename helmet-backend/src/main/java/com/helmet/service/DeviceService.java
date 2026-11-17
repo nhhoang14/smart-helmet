@@ -125,7 +125,7 @@ public class DeviceService {
         });
 
         // Lấy gasPpm gần nhất nếu cache chưa có
-        if (dto.getGasPpm() == null || dto.getGasPpm() == 0.0) {
+        if (!Boolean.FALSE.equals(dto.getGasReady()) && (dto.getGasPpm() == null || dto.getGasPpm() == 0.0)) {
             telemetryRepository.findTop1ByDeviceUidOrderByLogTimeDesc(deviceUid)
                     .ifPresent(t -> {
                         dto.setGasPpm(t.getGasPpm());

@@ -8,12 +8,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
 @Component
 public class DataInitializer implements CommandLineRunner {
+    @Value("${helmet.simulation.enabled:true}")
+    private boolean simulationEnabled;
     private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
 
     private final DeviceRepository deviceRepository;
@@ -29,7 +32,7 @@ public class DataInitializer implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
         initDeviceWithSettings("HELMET_001", "Mũ Bảo Hộ Thông Minh 01", "Nguyễn Văn An");
-        initDeviceWithSettings("HELMET_002", "Mũ mô phỏng 02", "Thiết bị mô phỏng");
+        if (simulationEnabled) initDeviceWithSettings("HELMET_002", "Mũ mô phỏng 02", "Thiết bị mô phỏng");
         log.info("DataInitializer completed.");
     }
 
@@ -39,12 +42,9 @@ public class DataInitializer implements CommandLineRunner {
                     .deviceUid(deviceUid)
                     .name(name)
                     .workerName(workerName)
-                    .isOnline(true)
-                    .isWorn(true)
+                    .isOnline(false)
+                    .isWorn(false)
                     .buzzerOn(false)
-                    .lastLat(21.0285)
-                    .lastLng(105.8542)
-                    .lastSeenAt(Instant.now())
                     .createdAt(Instant.now())
                     .updatedAt(Instant.now())
                     .build();

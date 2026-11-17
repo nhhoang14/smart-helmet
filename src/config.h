@@ -1,112 +1,91 @@
-/**
- * @file config.h
- * @brief Cấu hình chân kết nối, ngưỡng cảnh báo và tham số hệ thống
- * Tuân thủ sơ đồ kết nối chân và thông số trong smart-helmet-spec.md.
- */
-
-#ifndef CONFIG_H
-#define CONFIG_H
-#define SIMULATE_SENSOR 0
-
+#pragma once
 #include <Arduino.h>
-
-// ==========================================
-// 1. CẤU HÌNH CHÂN (PINOUT) - ESP32 DEVKIT V1 (Bảng 3.4)
-// ==========================================
-// Cảm biến khí MQ-135
-#define PIN_MQ135_ANALOG                                                       \
-  34 // ADC1_CH6 (tín hiệu AO qua cầu phân áp an toàn 3.3V)
-#define PIN_MQ135_DIGITAL 255 // Không đấu DO; chỉ sử dụng AO qua cầu phân áp
-
-// Cảm biến chuyển động MPU6050 (6 trục)
-#define PIN_I2C_SDA 21 // SDA MPU6050
-#define PIN_I2C_SCL 22 // SCL MPU6050
-#define MPU6050_I2C_ADDR 0x68
-
-// Module GPS NEO-6M nối với UART2 của ESP32
-#define PIN_GPS_RX 26 // RX2 nối TX của NEO-6M
-#define PIN_GPS_TX 25 // TX2 nối RX của NEO-6M
+#if __has_include("local_config.h")
+#include "local_config.h"
+#endif
+#ifndef HELMET_WIFI_SSID
+#define HELMET_WIFI_SSID ""
+#endif
+#ifndef HELMET_WIFI_PASSWORD
+#define HELMET_WIFI_PASSWORD ""
+#endif
+#ifndef HELMET_MQTT_HOST
+#define HELMET_MQTT_HOST ""
+#endif
+#ifndef HELMET_MQTT_PORT
+#define HELMET_MQTT_PORT 1883
+#endif
+#ifndef HELMET_MQTT_USER
+#define HELMET_MQTT_USER ""
+#endif
+#ifndef HELMET_MQTT_PASSWORD
+#define HELMET_MQTT_PASSWORD ""
+#endif
+#ifndef HELMET_DEVICE_ID
+#define HELMET_DEVICE_ID "HELMET_001"
+#endif
+#ifndef HELMET_ENABLE_GAS
+#define HELMET_ENABLE_GAS 1
+#endif
+#ifndef HELMET_ENABLE_GPS
+#define HELMET_ENABLE_GPS 1
+#endif
+#ifndef HELMET_ENABLE_IP_GEO
+#define HELMET_ENABLE_IP_GEO 1
+#endif
+#ifndef HELMET_ENABLE_WEAR
+#define HELMET_ENABLE_WEAR 1
+#endif
+#ifndef HELMET_ENABLE_SOS
+#define HELMET_ENABLE_SOS 0
+#endif
+#ifndef HELMET_GAS_DIGITAL_PIN
+// DO is optional; connect only with a 3.3 V safe output and external pull-up.
+#define HELMET_GAS_DIGITAL_PIN 255
+#endif
+#ifndef HELMET_BUZZER_PASSIVE
+#define HELMET_BUZZER_PASSIVE 1
+#endif
+#define PIN_MQ135_ANALOG 34
+#define PIN_MQ135_DIGITAL HELMET_GAS_DIGITAL_PIN
+#ifndef HELMET_WEAR_PIN
+#define HELMET_WEAR_PIN 14
+#endif
+#ifndef HELMET_SOS_PIN
+#define HELMET_SOS_PIN 32
+#endif
+#ifndef HELMET_GPS_RX
+#define HELMET_GPS_RX 26
+#endif
+#ifndef HELMET_GPS_TX
+#define HELMET_GPS_TX 25
+#endif
+#define PIN_TOUCH_WORN HELMET_WEAR_PIN
+#define PIN_SOS_BUTTON HELMET_SOS_PIN
+#define PIN_BUZZER 13
+#define PIN_CONFIRM_BUTTON 27
+#define PIN_I2C_SDA 21
+#define PIN_I2C_SCL 22
+#define PIN_GPS_RX HELMET_GPS_RX
+#define PIN_GPS_TX HELMET_GPS_TX
 #define GPS_BAUD_RATE 9600
-
-// Công tắc nhận biết đội mũ / Nút nhấn khẩn cấp SOS
-#define PIN_TOUCH_WORN 14 // Công tắc C -> GND, NO -> GPIO14 (INPUT_PULLUP)
-#define PIN_SOS_BUTTON                                                         \
-  27 // GPIO27 nối nút nhấn vật lý, đầu kia nối GND (INPUT_PULLUP)
-#define TOUCH_THRESHOLD 40 // < 40 là đang đội mũ, > 50 là tháo mũ
-
-// Thiết bị phát âm thanh cảnh báo (Active Buzzer)
-#define PIN_BUZZER 13 // GPIO13 điều khiển còi báo động (HIGH = kêu, LOW = tắt)
-
-// ==========================================
-// 2. KẾT NỐI MẠNG & MQTT (Mục 3.4)
-// ==========================================
-#define WIFI_SSID "nhhoang"
-#define WIFI_PASSWORD "hg123456"
-#define MQTT_BROKER "10.72.117.79"
-#define MQTT_PORT 1883
-#define MQTT_USERNAME ""
-#define MQTT_PASSWORD ""
-#define DEVICE_UID "HELMET_001"
-#define DEVICE_ID "HELMET_001"
-
-// Cấu trúc topic MQTT (Bảng 3.5)
-#define TOPIC_TELEMETRY "helmet/device/" DEVICE_UID "/telemetry"
-#define TOPIC_ALERT "helmet/device/" DEVICE_UID "/alert"
-#define TOPIC_EVENT "helmet/device/" DEVICE_UID "/event"
-#define TOPIC_STATUS "helmet/device/" DEVICE_UID "/status"
-#define TOPIC_STATE "helmet/device/" DEVICE_UID "/state"
-#define TOPIC_COMMAND "helmet/device/" DEVICE_UID "/command"
-
-#define MQTT_RECONNECT_INTERVAL_MS 5000UL
-#define TELEMETRY_INTERVAL_MS 3000UL // Định kỳ 3 giây gửi telemetry
-#define EVENT_QUEUE_CAPACITY 8
-
-// ==========================================
-// 3. ĐỊNH VỊ DỰ PHÒNG DỰA THEO WI-FI (INDOOR)
-// ==========================================
-// Khi ở trong nhà hoặc NEO-6M chưa bắt được vệ tinh, sử dụng tọa độ Wi-Fi
-#define DEFAULT_WIFI_LAT 21.028511
-#define DEFAULT_WIFI_LNG 105.854167
-
-// ==========================================
-// 4. CẤU HÌNH THỜI GIAN & LỌC TÍN HIỆU
-// ==========================================
-#define SENSOR_SAMPLE_INTERVAL_MS 100 // Chu kỳ đọc cảm biến (ms)
-#define SENSOR_WARMUP_SECONDS 10      // Thời gian sấy cảm biến (10 giây)
-#define FILTER_ALPHA                                                           \
-  0.15f // Hệ số lọc làm mượt EMA (Exponential Moving Average)
-
-// Tham số quy đổi MQ-135
+#define SENSOR_SAMPLE_INTERVAL_MS 100
+#define SENSOR_WARMUP_SECONDS 60
+#define FILTER_ALPHA 0.15f
 #define MQ135_RL_KOHM 10.0f
 #define MQ135_R0_KOHM 76.63f
 #define MQ135_CIRCUIT_VOLTAGE 5.0f
-#define MQ135_VOLTAGE_DIVIDER_GAIN                                             \
-  (34.0f / 22.0f) // AO 5V qua 12k/22k vào GPIO34
-
-// ==========================================
-// 5. CẤU HÌNH NGƯỠNG CẢNH BÁO (Bảng 3.11)
-// ==========================================
-#define GAS_WARN_PPM_DEFAULT 300.0f   // Ngưỡng khí cảnh báo (ppm)
-#define GAS_DANGER_PPM_DEFAULT 600.0f // Ngưỡng khí nguy hiểm (ppm)
-#define GAS_HYSTERESIS_PPM 25.0f      // Khoảng đệm trễ hạ mức an toàn
-
-// Ngưỡng phát hiện té ngã (gia tốc đỉnh)
-#define FALL_ACC_THRESHOLD_DEFAULT 2.5f // Ngưỡng gia tốc va chạm đỉnh (g)
-
-// Ngưỡng ADC để tương thích dự phòng
+#ifndef HELMET_MQ135_DIVIDER_GAIN
+// gas-detection wiring: AO -- 12k -- GPIO34 -- 22k -- GND.
+#define HELMET_MQ135_DIVIDER_GAIN (34.0f / 22.0f)
+#endif
+#define MQ135_VOLTAGE_DIVIDER_GAIN HELMET_MQ135_DIVIDER_GAIN
+#define GAS_WARN_PPM_DEFAULT 300.0f
+#define GAS_DANGER_PPM_DEFAULT 600.0f
+#define GAS_HYSTERESIS_PPM 25.0f
 #define ADC_THRESHOLD_WARNING 1200
 #define ADC_THRESHOLD_DANGER 2200
 #define ADC_HYSTERESIS 50
-
-// ==========================================
-// 6. ĐỊNH NGHĨA TRẠNG THÁI HỆ THỐNG
-// ==========================================
-enum SystemState {
-  STATE_WARMING_UP, // Đang sấy cảm biến
-  STATE_SAFE,       // Bình thường, an toàn
-  STATE_WARNING,    // Khí vượt ngưỡng chú ý (WARNING)
-  STATE_DANGER,     // Khí nguy hiểm / Té ngã / SOS (DANGER)
-  STATE_FALL        // Xác nhận té ngã
-};
-
-#endif // CONFIG_H
+#define TELEMETRY_INTERVAL_MS 3000UL
+#define EVENT_QUEUE_CAPACITY 20
+enum SystemState { STATE_WARMING_UP, STATE_SAFE, STATE_WARNING, STATE_DANGER, STATE_FALL };

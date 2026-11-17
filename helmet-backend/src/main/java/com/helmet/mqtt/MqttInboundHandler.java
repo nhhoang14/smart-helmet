@@ -69,14 +69,19 @@ public class MqttInboundHandler {
                 case "alert":
                 case "event": {
                     EventMessage msg = objectMapper.readValue(payload, EventMessage.class);
-                    alertService.handleEventWithValue(
+                    if ("FALL_ACK".equalsIgnoreCase(msg.resolveType())) {
+                        alertService.acknowledgeFallFromDevice(deviceId, msg.getRelatedFallId());
+                        break;
+                    }
+                    alertService.handleFirmwareEvent(
                             deviceId,
                             msg.resolveType(),
                             msg.resolveValue(),
                             msg.resolveLatitude(),
                             msg.resolveLongitude(),
                             msg.getMessage(),
-                            msg.resolveLocationSource()
+                            msg.resolveLocationSource(),
+                            msg.getEventId()
                     );
                     break;
                 }

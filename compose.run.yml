@@ -1,0 +1,10 @@
+# Use with the existing local stack; retain its MQTT/MySQL and database volume.
+services:
+  backend:
+    build:
+      context: ./helmet-backend
+      dockerfile: Dockerfile
+    environment:
+      HELMET_SIMULATION_ENABLED: "true"
+      HELMET_SIMULATION_DEVICE_ID: HELMET_002
+      HELMET_DEFAULT_DEVICE_ID: HELMET_001
