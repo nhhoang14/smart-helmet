@@ -1,594 +1,873 @@
 #include <Arduino.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <PubSubClient.h>
-#include <ArduinoJson.h>
-#include <TinyGPSPlus.h>
+#include <Wire.h>
+#include <math.h>
+#include <Preferences.h>
+#include "fall_detector.h"
+#include "fall_alarm.h"
+#include "push_button.h"
 #include "config.h"
 #include "mq135_sensor.h"
-#include "alarm_controller.h"
+#include "alarm_policy.h"
+#include "helmet_services.h"
+#include "gas_policy.h"
 
-// Khởi tạo các cảm biến và ngoại vi
-MQ135Sensor mq135(PIN_MQ135_ANALOG, PIN_MQ135_DIGITAL);
-AlarmController alarmCtrl(PIN_BUZZER);
-TinyGPSPlus gps;
-HardwareSerial gpsSerial(2);
-WiFiClient wifiClient;
-PubSubClient mqttClient(wifiClient);
+// The latest Nshop reference is a passive buzzer, driven with hardware PWM.
+// Set BUZZER_IS_PASSIVE to false for the earlier TMB12A05 active-buzzer model.
+constexpr int BUZZER_CONTROL_PIN = PIN_BUZZER;
+constexpr bool BUZZER_IS_PASSIVE = HELMET_BUZZER_PASSIVE;
+constexpr uint8_t BUZZER_PWM_CHANNEL = 0;
+constexpr uint32_t BUZZER_TONE_HZ = 2500;
+constexpr uint8_t BUZZER_PWM_BITS = 10;
+constexpr uint32_t BUZZER_PWM_DUTY = 1u << (BUZZER_PWM_BITS - 1);
+bool buzzerReady = false;
+bool buzzerActive = false;
+constexpr int CONFIRM_BUTTON_PIN = PIN_CONFIRM_BUTTON;
+helmet::PushButton confirmButton;
 
-// Trạng thái hệ thống
-SystemState currentState = STATE_WARMING_UP;
-unsigned long lastSerialPrint = 0;
-unsigned long lastTelemetryPublish = 0;
-unsigned long lastMqttAttempt = 0;
-unsigned long lastWifiAttempt = 0;
-unsigned long lastWifiGeoAttempt = 0;
-unsigned long lastWifiScanStart = 0;
-const unsigned long SERIAL_PRINT_INTERVAL = 1000;
+void writeBuzzer(bool active) {
+    buzzerActive = active;
+    if (!buzzerReady) return;
+    if (BUZZER_IS_PASSIVE) ledcWrite(BUZZER_PWM_CHANNEL, active ? BUZZER_PWM_DUTY : 0);
+    else digitalWrite(BUZZER_CONTROL_PIN, active ? HIGH : LOW);
+}
 
-// Vị trí định vị qua Wi-Fi (indoor fallback)
-double wifiLat = DEFAULT_WIFI_LAT;
-double wifiLng = DEFAULT_WIFI_LNG;
-bool hasWifiGeoLocation = false;
+helmet::FallAlarm fallAlarm(writeBuzzer);
 
-// Trạng thái công tắc (KW11 / SOS) và debounce
-bool lastSwitchState = false;
-bool systemEnabled = false;
-bool lastButtonState = false;
-unsigned long lastDebounceTime = 0;
-unsigned long lastButtonDebounceTime = 0;
-const unsigned long DEBOUNCE_DELAY = 50;
+void reportFall(const helmet::FallReport& report);
+helmet::FallDetector fallDetector(reportFall);
+helmet::AlarmPolicy alarmPolicy;
+MQ135Sensor gasSensor(PIN_MQ135_ANALOG, PIN_MQ135_DIGITAL);
+helmet::PushButton sosButton;
+SystemState gasState = STATE_WARMING_UP;
+helmet::GasPolicy gasPolicy(GAS_WARN_PPM_DEFAULT, GAS_DANGER_PPM_DEFAULT,
+                           ADC_THRESHOLD_WARNING, ADC_THRESHOLD_DANGER,
+                           GAS_HYSTERESIS_PPM, ADC_HYSTERESIS);
+bool worn = false;
+bool sosActive = false;
+bool remoteActive = false;
+bool fallRearmRequired = false;
+uint32_t remoteStartedAt = 0;
+float lastAccelerationG = NAN;
+float gasWarnThreshold = GAS_WARN_PPM_DEFAULT;
+float gasDangerThreshold = GAS_DANGER_PPM_DEFAULT;
+float pendingImpactThreshold = NAN;
+void refreshAlarm(uint32_t now);
+void acknowledgeAlarm(uint32_t now);
+void updateIntegratedServices(uint32_t now);
+bool sensorFault = false;
+helmet::FallState lastReportedFallState = helmet::FallState::MONITORING;
 
-// Hàng đợi lưu trữ cảnh báo khi mất mạng
-struct PendingEvent {
-    char type[20];
-    char message[64];
-    double lat;
-    double lng;
-    char source[10];
-    bool hasLocation;
-    uint32_t timestamp;
+void reportFall(const helmet::FallReport& report) {
+    refreshAlarm(report.timestamp);
+    Serial.printf("FALL t=%lu state=%s a=%.3f g gyro=%.2f dps tilt=%.2f deg "
+                  "held=%lu ms slow=%lu ms moving=%lu ms route=%s reason=%s\n",
+                  static_cast<unsigned long>(report.timestamp), helmet::fallStateName(report.state),
+                  report.accelerationG, report.rotationDps, report.tiltDegrees,
+                  static_cast<unsigned long>(report.heldMs),
+                  static_cast<unsigned long>(report.slowHeldMs),
+                  static_cast<unsigned long>(report.tiltedMs),
+                  helmet::fallRouteName(report.route), report.reason);
+    if (report.state == helmet::FallState::PENDING_CONFIRMATION &&
+        lastReportedFallState != report.state) {
+        Serial.println("BUZZER: reminder 150 ms ON / 1350 ms OFF. Press D27 button or send k within 10 s.");
+    }
+    if (report.state == helmet::FallState::FALL_ALERT && lastReportedFallState != report.state) {
+        queueHelmetEvent("FALL", "Nghi ngo te nga, khong phan hoi", report.accelerationG);
+        Serial.println("FALL_ALERT: press D27 or send r to acknowledge.");
+    }
+    if (report.state == helmet::FallState::MONITORING &&
+        (lastReportedFallState == helmet::FallState::PENDING_CONFIRMATION ||
+         lastReportedFallState == helmet::FallState::FALL_ALERT)) {
+        Serial.println("FALL: acknowledged; waiting for upright posture before rearming.");
+    }
+    lastReportedFallState = report.state;
+}
+
+constexpr int I2C_SDA_PIN = PIN_I2C_SDA;
+constexpr int I2C_SCL_PIN = PIN_I2C_SCL;
+constexpr unsigned long SAMPLE_INTERVAL_MS = 20;  // Đọc 50 lần/giây
+constexpr unsigned long PRINT_INTERVAL_MS = 500;  // In 2 lần/giây
+constexpr uint8_t REG_SMPLRT_DIV   = 0x19;
+constexpr uint8_t REG_CONFIG       = 0x1A;
+constexpr uint8_t REG_GYRO_CONFIG  = 0x1B;
+constexpr uint8_t REG_ACCEL_CONFIG = 0x1C;
+constexpr uint8_t REG_ACCEL_XOUT_H = 0x3B;
+constexpr uint8_t REG_PWR_MGMT_1   = 0x6B;
+constexpr uint8_t REG_WHO_AM_I     = 0x75;
+
+constexpr uint8_t WHO_AM_I_MPU6050 = 0x68;
+constexpr uint8_t PWR_MGMT_1_SLEEP = 0x40;   // Bị bật lại sau mỗi lần reset nguồn
+constexpr unsigned long RETRY_INTERVAL_MS = 2000;
+constexpr uint16_t STALL_SAMPLES = 500;  // 500 mẫu × 20 ms = 10 giây
+constexpr uint8_t ACCEL_CONFIG_VALUE = 0x10;  // ±8 g
+constexpr uint8_t GYRO_CONFIG_VALUE = 0x10;   // ±1000 độ/giây
+constexpr float ACCEL_LSB_PER_G = 4096.0f;
+constexpr float GYRO_LSB_PER_DPS = 32.8f;
+constexpr uint8_t MAX_CONSECUTIVE_READ_FAILURES = 3;
+
+const uint8_t CANDIDATE_ADDRESSES[] = {0x68, 0x69};
+uint8_t sensorAddress = 0;
+uint8_t lastI2cError = 0;
+uint8_t lastReadBytes = 0;
+
+struct Reading {
+    float ax, ay, az;
+    float gx, gy, gz;
+    float temperature;
 };
 
-PendingEvent eventQueue[EVENT_QUEUE_CAPACITY];
-uint8_t queueHead = 0;
-uint8_t queueSize = 0;
+void resetFallDetector(const char* reason);
 
-// ==========================================
-// ĐỊNH VỊ: ƯU TIÊN GPS NEO-6M, DỰ PHÒNG WI-FI
-// ==========================================
+bool writeRegister(uint8_t address, uint8_t reg, uint8_t value) {
+    Wire.beginTransmission(address);
+    Wire.write(reg);
+    Wire.write(value);
+    return Wire.endTransmission() == 0;
+}
 
-void readGps() {
-    while (gpsSerial.available() > 0) {
-        gps.encode(gpsSerial.read());
+bool readRegisters(uint8_t address, uint8_t reg,
+                   uint8_t* buffer, uint8_t length) {
+    lastReadBytes = 0;
+    Wire.beginTransmission(address);
+    Wire.write(reg);
+
+    lastI2cError = Wire.endTransmission(false);
+    if (lastI2cError != 0) {
+        return false;
     }
+
+    lastReadBytes = Wire.requestFrom(address, length);
+    if (lastReadBytes != length) {
+        while (Wire.available()) {
+            Wire.read();
+        }
+        return false;
+    }
+
+    for (uint8_t i = 0; i < length; ++i) {
+        if (!Wire.available()) {
+            return false;
+        }
+        buffer[i] = static_cast<uint8_t>(Wire.read());
+    }
+
+    return true;
 }
 
-bool isOutdoorGpsValid() {
-    return gps.location.isValid() && 
-           (gps.location.age() < 10000) && 
-           (gps.location.lat() != 0.0);
+bool readRegister(uint8_t address, uint8_t reg, uint8_t& value) {
+    return readRegisters(address, reg, &value, 1);
 }
 
-void getCurrentLocation(double &lat, double &lng, String &source, bool &isFix) {
-    if (isOutdoorGpsValid()) {
-        lat = gps.location.lat();
-        lng = gps.location.lng();
-        source = "gps";   // Ngoài trời: ưu tiên GPS NEO-6M
-        isFix = true;
+bool configureSensor() {
+    return writeRegister(sensorAddress, REG_PWR_MGMT_1, 0x01) &&
+           writeRegister(sensorAddress, REG_SMPLRT_DIV, 19) &&  // 1 kHz / 20 = 50 Hz
+           writeRegister(sensorAddress, REG_CONFIG, 0x03) &&
+           writeRegister(sensorAddress, REG_GYRO_CONFIG, GYRO_CONFIG_VALUE) &&
+           writeRegister(sensorAddress, REG_ACCEL_CONFIG, ACCEL_CONFIG_VALUE);
+}
+
+void restartBus() {
+    Wire.end();
+    pinMode(I2C_SDA_PIN, INPUT_PULLUP);
+    pinMode(I2C_SCL_PIN, INPUT_PULLUP);
+    delay(10);
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, 100000);
+    Wire.setTimeOut(20);
+}
+
+void scanBus() {
+    Serial.println("Scanning I2C bus...");
+    unsigned int deviceCount = 0;
+
+    for (uint8_t address = 0x08; address <= 0x77; ++address) {
+        Wire.beginTransmission(address);
+        uint8_t error = Wire.endTransmission();
+
+        if (error == 0) {
+            Serial.printf("  device at 0x%02X\n", address);
+            ++deviceCount;
+        }
+    }
+
+    if (deviceCount == 0) {
+        Serial.println("  no devices found.");
     } else {
-        lat = wifiLat;
-        lng = wifiLng;
-        source = "wifi";  // Trong nhà / không bắt được GPS: dùng vị trí Wi-Fi
-        isFix = false;
+        Serial.printf("Scan done: %u device(s).\n", deviceCount);
     }
 }
 
-void fetchWifiGeolocation() {
-    if (WiFi.status() != WL_CONNECTED) return;
-    
-    // Thử truy vấn tọa độ IP nếu có internet
-    HTTPClient http;
-    http.setTimeout(3000);
-    if (http.begin("http://ip-api.com/json/?fields=status,lat,lon")) {
-        int httpCode = http.GET();
-        if (httpCode == HTTP_CODE_OK) {
-            String payload = http.getString();
-            StaticJsonDocument<256> doc;
-            DeserializationError err = deserializeJson(doc, payload);
-            if (!err && doc["status"] == "success") {
-                wifiLat = doc["lat"].as<double>();
-                wifiLng = doc["lon"].as<double>();
-                hasWifiGeoLocation = true;
-                Serial.printf("[GEO] Lấy tọa độ dựa theo Wi-Fi thành công: lat=%.6f, lng=%.6f\n", wifiLat, wifiLng);
-            }
+uint8_t findSensor() {
+    for (uint8_t address : CANDIDATE_ADDRESSES) {
+        Wire.beginTransmission(address);
+        if (Wire.endTransmission() == 0) {
+            return address;
         }
-        http.end();
     }
+    return 0;
 }
 
-// ==========================================
-// QUẢN LÝ SỰ KIỆN & MQTT
-// ==========================================
+// Kiểm tra cảm biến còn sống và còn thức; nếu không thì kết nối lại.
+// force = true bỏ qua bước kiểm tra nhanh, cấu hình lại từ đầu.
+bool ensureSensor(bool force) {
+    static uint32_t lastAttempt = 0;
+    static bool lastAttemptFailed = false;
 
-bool publishAlertEvent(const char* type, const char* msgText) {
-    if (!mqttClient.connected()) return false;
+    // Recovery cancels acquisition but preserves the saved mounting reference.
+    resetFallDetector("sensor recovery");
 
-    double lat, lng;
-    String source;
-    bool isFix;
-    getCurrentLocation(lat, lng, source, isFix);
-
-    StaticJsonDocument<384> doc;
-    doc["type"] = type;
-    doc["alert_type"] = type;
-    doc["message"] = msgText;
-    doc["value"] = mq135.getPpm();
-    doc["gas"] = mq135.getPpm();
-    doc["lat"] = lat;
-    doc["lng"] = lng;
-    doc["location_source"] = source;
-    doc["ts"] = millis() / 1000UL;
-
-    JsonObject gpsObj = doc.createNestedObject("gps");
-    gpsObj["fix"] = isFix;
-    gpsObj["source"] = source;
-    gpsObj["latitude"] = lat;
-    gpsObj["longitude"] = lng;
-    gpsObj["satellites"] = isOutdoorGpsValid() ? gps.satellites.value() : 0;
-    gpsObj["age_ms"] = isOutdoorGpsValid() ? gps.location.age() : 0;
-
-    String payload;
-    serializeJson(doc, payload);
-
-    bool pub1 = mqttClient.publish(TOPIC_EVENT, payload.c_str(), true);
-    bool pub2 = mqttClient.publish(TOPIC_ALERT, payload.c_str(), true);
-    return pub1 || pub2;
-}
-
-void enqueueEvent(const char* type, const char* msgText) {
-    PendingEvent event;
-    strncpy(event.type, type, sizeof(event.type) - 1);
-    event.type[sizeof(event.type) - 1] = '\0';
-    strncpy(event.message, msgText, sizeof(event.message) - 1);
-    event.message[sizeof(event.message) - 1] = '\0';
-
-    double lat, lng;
-    String source;
-    bool isFix;
-    getCurrentLocation(lat, lng, source, isFix);
-    event.lat = lat;
-    event.lng = lng;
-    strncpy(event.source, source.c_str(), sizeof(event.source) - 1);
-    event.source[sizeof(event.source) - 1] = '\0';
-    event.hasLocation = true;
-    event.timestamp = millis() / 1000UL;
-
-    if (queueSize < EVENT_QUEUE_CAPACITY) {
-        eventQueue[(queueHead + queueSize) % EVENT_QUEUE_CAPACITY] = event;
-        queueSize++;
-    }
-}
-
-void flushEventQueue() {
-    while (queueSize > 0) {
-        PendingEvent &ev = eventQueue[queueHead];
-        if (!publishAlertEvent(ev.type, ev.message)) return;
-        queueHead = (queueHead + 1) % EVENT_QUEUE_CAPACITY;
-        queueSize--;
-    }
-}
-
-void publishTelemetry() {
-    if (!mqttClient.connected()) return;
-
-    double lat, lng;
-    String source;
-    bool isFix;
-    getCurrentLocation(lat, lng, source, isFix);
-
-    StaticJsonDocument<384> doc;
-    doc["gas"] = mq135.getPpm();
-    doc["adc"] = (int)mq135.getFilteredADC();
-    doc["voltage"] = mq135.getVoltage();
-    doc["worn"] = systemEnabled;
-    doc["fall"] = false;
-    doc["buzzer_on"] = alarmCtrl.isSounding();
-    doc["buzzer_state"] = alarmCtrl.isSounding() ? "ON" : "OFF";
-    doc["lat"] = lat;
-    doc["lng"] = lng;
-    doc["location_source"] = source;
-    doc["ts"] = millis() / 1000UL;
-
-    JsonObject gpsObj = doc.createNestedObject("gps");
-    gpsObj["fix"] = isFix;
-    gpsObj["source"] = source;
-    gpsObj["latitude"] = lat;
-    gpsObj["longitude"] = lng;
-    gpsObj["satellites"] = isOutdoorGpsValid() ? gps.satellites.value() : 0;
-    gpsObj["age_ms"] = isOutdoorGpsValid() ? gps.location.age() : 0;
-
-    JsonObject sensorsObj = doc.createNestedObject("sensors");
-    sensorsObj["gas_ppm"] = mq135.getPpm();
-    sensorsObj["adc"] = (int)mq135.getFilteredADC();
-    sensorsObj["voltage"] = mq135.getVoltage();
-
-    String payload;
-    serializeJson(doc, payload);
-    mqttClient.publish(TOPIC_TELEMETRY, payload.c_str());
-}
-
-// ==========================================
-// ĐỊNH VỊ KHU VỰC BẰNG WI-FI FINGERPRINT
-// ==========================================
-
-// Gửi kết quả một lần quét: in ra Serial (để thu dữ liệu) và publish lên backend (để định vị)
-void publishWifiScan(int n) {
-#if WIFI_SCAN_DEBUG_SERIAL
-    Serial.print(F("SCAN"));
-    for (int i = 0; i < n; i++) {
-        Serial.printf(";%s=%d", WiFi.BSSIDstr(i).c_str(), WiFi.RSSI(i));
-    }
-    Serial.println();
-#endif
-
-    if (!mqttClient.connected()) return;
-
-    DynamicJsonDocument doc(4096);
-    JsonObject scan = doc.createNestedObject("scan");
-    int sent = 0;
-    for (int i = 0; i < n && sent < WIFI_SCAN_MAX_APS; i++) {
-        uint8_t* bssid = WiFi.BSSID(i);
-        // Bỏ BSSID "locally administered" (hotspot điện thoại, SSID ảo) - backend cũng lọc lại
-        if (bssid == nullptr || (bssid[0] & 0x02)) continue;
-        scan[WiFi.BSSIDstr(i)] = WiFi.RSSI(i);
-        sent++;
-    }
-    doc["ts"] = millis() / 1000UL;
-
-    String payload;
-    serializeJson(doc, payload);
-    if (!mqttClient.publish(TOPIC_WIFISCAN, payload.c_str())) {
-        Serial.printf("[WIFI-FP] Gửi scan thất bại (%u byte)\n", payload.length());
-    }
-}
-
-// Quét Wi-Fi bất đồng bộ để không chặn loop() (đọc cảm biến, còi vẫn chạy trong lúc quét)
-void handleWifiFingerprint() {
-#if WIFI_FINGERPRINT_ENABLED
-    int n = WiFi.scanComplete();
-    if (n == WIFI_SCAN_RUNNING) return;
-    if (n >= 0) {
-        publishWifiScan(n);
-        WiFi.scanDelete();
+    if (lastAttemptFailed && millis() - lastAttempt < RETRY_INTERVAL_MS) {
+        return false;
     }
 
-    if (WiFi.status() != WL_CONNECTED) return;
-    unsigned long now = millis();
-    if (now - lastWifiScanStart < WIFI_SCAN_INTERVAL_MS) return;
-    lastWifiScanStart = now;
-    WiFi.scanNetworks(true, true, false, WIFI_SCAN_MS_PER_CHANNEL);  // async, gồm cả mạng ẩn
-#endif
-}
-
-// ==========================================
-// XỬ LÝ LỆNH TỪ WEB BACKEND (MQTT COMMAND)
-// ==========================================
-
-void onMqttMessage(char* topic, byte* payload, unsigned int length) {
-    StaticJsonDocument<256> doc;
-    DeserializationError err = deserializeJson(doc, payload, length);
-    if (err) return;
-
-    Serial.print(F("[MQTT CMD] Nhận lệnh từ Backend: "));
-    serializeJson(doc, Serial);
-    Serial.println();
-
-    bool shouldBuzzerOn = false;
-    bool hasBuzzerCmd = false;
-
-    if (doc.containsKey("action")) {
-        const char* action = doc["action"];
-        if (strcasecmp(action, "FIND_HELMET") == 0) {
-            hasBuzzerCmd = true;
-            const char* state = doc["payload"]["state"] | "ON";
-            shouldBuzzerOn = (strcasecmp(state, "ON") == 0);
+    if (!force && sensorAddress != 0) {
+        uint8_t whoAmI = 0;
+        uint8_t power = 0;
+        if (readRegister(sensorAddress, REG_WHO_AM_I, whoAmI) &&
+            whoAmI == WHO_AM_I_MPU6050 &&
+            readRegister(sensorAddress, REG_PWR_MGMT_1, power) &&
+            (power & PWR_MGMT_1_SLEEP) == 0) {
+            lastAttemptFailed = false;
+            return true;
         }
-    } else if (doc.containsKey("buzzer")) {
-        hasBuzzerCmd = true;
-        shouldBuzzerOn = doc["buzzer"].as<bool>();
     }
 
-    if (hasBuzzerCmd) {
-        if (shouldBuzzerOn) {
-            alarmCtrl.setState(STATE_DANGER);
-            Serial.println(F("[CMD] Bật còi báo động để Tìm mũ!"));
-            // Bật còi và lập tức gửi vị trí hiện tại lên server
-            publishTelemetry();
+    lastAttempt = millis();
+    Serial.println("Recovery: reconnecting MPU6050...");
+
+    if (force) {
+        // The discovery path below restarts the bus before probing addresses.
+        sensorAddress = 0;
+    }
+
+    uint8_t power = 0;
+    if (sensorAddress != 0) {
+        if (readRegister(sensorAddress, REG_PWR_MGMT_1, power)) {
+            Serial.printf("  PWR_MGMT_1 = 0x%02X before re-init\n", power);
         } else {
-            alarmCtrl.silence();
-            alarmCtrl.setState(STATE_SAFE);
-            Serial.println(F("[CMD] Tắt còi theo lệnh Web."));
-            publishTelemetry();
+            Serial.println("  sensor not answering -> restarting I2C bus");
+            sensorAddress = 0;
+        }
+    }
+
+    if (sensorAddress == 0) {
+        restartBus();
+        sensorAddress = findSensor();
+        if (sensorAddress == 0) {
+            Serial.println("  no device at 0x68/0x69, will retry");
+            lastAttemptFailed = true;
+            return false;
+        }
+    }
+
+    uint8_t whoAmI = 0;
+    if (!readRegister(sensorAddress, REG_WHO_AM_I, whoAmI) ||
+        whoAmI != WHO_AM_I_MPU6050) {
+        Serial.printf("  unexpected WHO_AM_I = 0x%02X\n", whoAmI);
+        sensorAddress = 0;
+        lastAttemptFailed = true;
+        return false;
+    }
+
+    if (!configureSensor()) {
+        Serial.println("  register configuration failed");
+        sensorAddress = 0;
+        lastAttemptFailed = true;
+        return false;
+    }
+
+    delay(100);
+    Serial.println("  sensor ready.");
+    lastAttemptFailed = false;
+    return true;
+}
+
+bool readReading(Reading& reading) {
+    uint8_t raw[14];
+
+    if (!readRegisters(sensorAddress, REG_ACCEL_XOUT_H,
+                       raw, sizeof(raw))) {
+        return false;
+    }
+
+    // Nếu cả 14 byte đều bằng 0 thì đây không phải mẫu đo đáng tin cậy.
+    bool allZero = true;
+    for (uint8_t value : raw) {
+        if (value != 0) {
+            allZero = false;
+            break;
+        }
+    }
+
+    if (allZero) {
+        Serial.println("Invalid MPU6050 sample: all 14 bytes are zero.");
+        return false;
+    }
+
+    int16_t accelX = static_cast<int16_t>((raw[0] << 8) | raw[1]);
+    int16_t accelY = static_cast<int16_t>((raw[2] << 8) | raw[3]);
+    int16_t accelZ = static_cast<int16_t>((raw[4] << 8) | raw[5]);
+    int16_t rawTemp = static_cast<int16_t>((raw[6] << 8) | raw[7]);
+    int16_t gyroX  = static_cast<int16_t>((raw[8] << 8) | raw[9]);
+    int16_t gyroY  = static_cast<int16_t>((raw[10] << 8) | raw[11]);
+    int16_t gyroZ  = static_cast<int16_t>((raw[12] << 8) | raw[13]);
+
+    reading.ax = accelX / ACCEL_LSB_PER_G;
+    reading.ay = accelY / ACCEL_LSB_PER_G;
+    reading.az = accelZ / ACCEL_LSB_PER_G;
+
+    reading.gx = gyroX / GYRO_LSB_PER_DPS;
+    reading.gy = gyroY / GYRO_LSB_PER_DPS;
+    reading.gz = gyroZ / GYRO_LSB_PER_DPS;
+
+    reading.temperature = rawTemp / 340.0f + 36.53f;
+    return true;
+}
+
+float magnitude(float x, float y, float z) {
+    return sqrtf(x * x + y * y + z * z);
+}
+
+
+// Calibration gates are acquisition checks, separate from fall thresholds.
+struct Vec3 { float x, y, z; };
+struct StoredPosture {
+    uint32_t magic;
+    uint32_t version;
+    Vec3 gravity;
+    Vec3 gyroBias;
+};
+constexpr uint32_t POSTURE_MAGIC = 0x484D5531;
+constexpr uint32_t POSTURE_VERSION = 1;
+constexpr uint16_t CAL_SAMPLES = 101; // 101 samples span 2 s at 50 Hz
+StoredPosture posture{};
+bool hasPosture = false;
+
+void applyFallReference() {
+    fallDetector.setReference({posture.gravity.x, posture.gravity.y, posture.gravity.z},
+                             {posture.gyroBias.x, posture.gyroBias.y, posture.gyroBias.z});
+}
+struct Calibration {
+    bool countdown = false;
+    bool collecting = false;
+    uint32_t requested = 0, first = 0, last = 0;
+    uint16_t count = 0;
+    Vec3 anchor{}, meanA{}, meanG{};
+    float m2 = 0;
+} calibration;
+
+float norm(const Vec3& v) { return magnitude(v.x, v.y, v.z); }
+float vectorAngle(const Vec3& a, const Vec3& b) {
+    float n = norm(a) * norm(b);
+    if (n < 0.01f) return NAN;
+    float c = (a.x*b.x + a.y*b.y + a.z*b.z) / n;
+    return acosf(fmaxf(-1.0f, fminf(1.0f, c))) * 180.0f / PI;
+}
+bool validPosture(const StoredPosture& s) {
+    const float n = norm(s.gravity), g = norm(s.gyroBias);
+    return s.magic == POSTURE_MAGIC && s.version == POSTURE_VERSION &&
+           isfinite(n) && n >= 0.8f && n <= 1.2f &&
+           isfinite(g) && g < 10.0f;
+}
+void printPosture() {
+    if (!hasPosture) { Serial.println("NO_REFERENCE: send c to calibrate."); return; }
+    Serial.printf("REFERENCE[g] %.5f %.5f %.5f | gyro_bias[dps] %.4f %.4f %.4f\n",
+                  posture.gravity.x, posture.gravity.y, posture.gravity.z,
+                  posture.gyroBias.x, posture.gyroBias.y, posture.gyroBias.z);
+}
+void loadPosture() {
+    Preferences prefs;
+    if (!prefs.begin("helmet-pose", true)) {
+        Serial.println("NO_REFERENCE: storage unavailable or first use; send c.");
+        return;
+    }
+    StoredPosture saved{};
+    bool ok = prefs.getBytesLength("posture") == sizeof(saved) &&
+              prefs.getBytes("posture", &saved, sizeof(saved)) == sizeof(saved);
+    prefs.end();
+    if (ok && validPosture(saved)) {
+        posture = saved; hasPosture = true;
+        applyFallReference();
+        Serial.println("REFERENCE_LOADED: saved posture restored."); printPosture();
+    } else Serial.println("NO_REFERENCE: send c to calibrate.");
+}
+bool savePosture(const StoredPosture& value) {
+    Preferences prefs;
+    if (!prefs.begin("helmet-pose", false)) return false;
+    bool ok = prefs.putBytes("posture", &value, sizeof(value)) == sizeof(value);
+    StoredPosture check{};
+    ok = ok && prefs.getBytes("posture", &check, sizeof(check)) == sizeof(check) &&
+         memcmp(&value, &check, sizeof(value)) == 0;
+    prefs.end();
+    return ok;
+}
+void abortCalibration(const char* reason) {
+    if (calibration.countdown || calibration.collecting)
+        Serial.printf("CAL_ABORT: %s. Previous reference kept; send c to retry.\n", reason);
+    calibration = {};
+}
+// Existing sensor error paths call this hook. Never erase the saved reference.
+void resetFallDetector(const char* reason) {
+    lastAccelerationG = NAN;
+    abortCalibration(reason);
+    fallDetector.missingSample(millis(), reason);
+}
+void handleConfirmButton(uint32_t now) {
+    const bool pressed = digitalRead(CONFIRM_BUTTON_PIN) == LOW;
+    static bool previousRaw = pressed;
+    if (pressed != previousRaw) {
+        previousRaw = pressed;
+        Serial.printf("BUTTON_RAW: GPIO%d=%s\n", CONFIRM_BUTTON_PIN, pressed ? "LOW" : "HIGH");
+    }
+    const helmet::ButtonEvent event = confirmButton.update(pressed, now);
+    if (event == helmet::ButtonEvent::NONE) return;
+    Serial.printf("BUTTON: %s GPIO%d state=%s\n",
+                  event == helmet::ButtonEvent::PRESSED ? "PRESSED" : "RELEASED",
+                  CONFIRM_BUTTON_PIN, helmet::fallStateName(fallDetector.state()));
+    if (event != helmet::ButtonEvent::PRESSED) return;
+    acknowledgeAlarm(now);
+}
+void handleCommands() {
+    while (Serial.available()) {
+        const char c = static_cast<char>(Serial.read());
+        if (c == 'c' || c == 'C') {
+            if (fallDetector.state() != helmet::FallState::MONITORING) {
+                Serial.println("CAL_BUSY: finish the current fall event before recalibrating.");
+                continue;
+            }
+            calibration = {};
+            calibration.countdown = true;
+            calibration.requested = millis();
+            Serial.println("CAL_COUNTDOWN: 3 s. Wear helmet normally, look straight, keep still.");
+        } else if (c == 'p' || c == 'P') printPosture();
+        else if (c == 'x' || c == 'X') abortCalibration("cancelled by user");
+        else if (c == 'k' || c == 'K' || c == 'r' || c == 'R') acknowledgeAlarm(millis());
+        else if (c == 's' || c == 'S') {
+            sosActive = true;
+            queueHelmetEvent("SOS", "SOS activated by user");
+        }
+        else if (c == 'b' || c == 'B') {
+            if (fallAlarm.testBeep(millis())) Serial.println("BUZZER: manual test 200 ms.");
+            else Serial.println("BUZZER: finish the current fall event before a manual test.");
         }
     }
 }
-
-// ==========================================
-// XỬ LÝ CÔNG TẮC HÀNH TRÌNH KW11 / NÚT SOS
-// ==========================================
-
-bool isSwitchPressedRaw() {
-    // Công tắc hành trình KW11 nối GND và GPIO14 (INPUT_PULLUP):
-    // Khi đội mũ, công tắc bị nén đóng lại -> LOW (ĐANG ĐỘI).
-    // Khi chưa ấn/tháo mũ -> HIGH (CHƯA ĐỘI).
-    return digitalRead(PIN_TOUCH_WORN) == LOW;
+void updateCalibration(const Reading& r, uint32_t now) {
+    if (calibration.countdown) {
+        if (now - calibration.requested < 3000) return;
+        calibration.countdown = false;
+        calibration.collecting = true;
+        Serial.println("CAL_COLLECTING: keep head still for 2 s.");
+    }
+    if (!calibration.collecting) return;
+    const Vec3 a{r.ax, r.ay, r.az}, g{r.gx, r.gy, r.gz};
+    const float an = norm(a), gn = norm(g);
+    if (!isfinite(an) || !isfinite(gn) || an < 0.8f || an > 1.2f || gn >= 10.0f) {
+        abortCalibration("movement or invalid sample"); return;
+    }
+    if (calibration.count == 0) {
+        calibration.first = now;
+        calibration.anchor = a;
+    } else if (now - calibration.last > 3 * SAMPLE_INTERVAL_MS) {
+        abortCalibration("sampling gap"); return;
+    }
+    // Also reject slow head tilting: |a| near 1 g alone cannot prove stillness.
+    if (vectorAngle(calibration.anchor, a) > 3.0f) {
+        abortCalibration("head orientation changed"); return;
+    }
+    calibration.last = now;
+    ++calibration.count;
+    const float n = calibration.count;
+    const Vec3 d{a.x-calibration.meanA.x, a.y-calibration.meanA.y, a.z-calibration.meanA.z};
+    calibration.meanA.x += d.x/n; calibration.meanA.y += d.y/n; calibration.meanA.z += d.z/n;
+    calibration.m2 += d.x*(a.x-calibration.meanA.x) + d.y*(a.y-calibration.meanA.y) + d.z*(a.z-calibration.meanA.z);
+    calibration.meanG.x += (g.x-calibration.meanG.x)/n;
+    calibration.meanG.y += (g.y-calibration.meanG.y)/n;
+    calibration.meanG.z += (g.z-calibration.meanG.z)/n;
+    if (calibration.count < CAL_SAMPLES) return;
+    const float rms = sqrtf(fmaxf(0.0f, calibration.m2/n));
+    if (now - calibration.first < 1980 || rms > 0.03f) {
+        abortCalibration("insufficient duration or excessive vibration"); return;
+    }
+    StoredPosture candidate{};
+    candidate.magic = POSTURE_MAGIC; candidate.version = POSTURE_VERSION;
+    candidate.gravity = calibration.meanA; candidate.gyroBias = calibration.meanG;
+    if (!validPosture(candidate) || !savePosture(candidate)) {
+        abortCalibration("validation or storage failure"); return;
+    }
+    posture = candidate; hasPosture = true;
+    applyFallReference();
+    Serial.printf("CAL_OK: samples=%u duration=%lu ms rms=%.5f g; reference saved.\n",
+                  calibration.count, static_cast<unsigned long>(now-calibration.first), rms);
+    calibration = {};
+    printPosture();
+}
+void printPostureAngle() {
+    if (!hasPosture) { Serial.println(" | tilt=NA (send c)"); return; }
+    if (calibration.countdown || calibration.collecting) {
+        Serial.println(" | tilt=NA (calibrating)");
+        return;
+    }
+    const float tilt = fallDetector.tiltDegrees();
+    if (isfinite(tilt)) Serial.printf(" | tilt=%.2f deg (fused)\n", tilt);
+    else Serial.println(" | tilt=NA (awaiting valid quasi-static sample)");
 }
 
-void checkControls() {
-    bool reading = isSwitchPressedRaw();
-    unsigned long now = millis();
-
-    if (reading != lastSwitchState && (now - lastDebounceTime) > DEBOUNCE_DELAY) {
-        lastSwitchState = reading;
-        lastDebounceTime = now;
-        systemEnabled = reading;
-
-        if (systemEnabled) {
-            Serial.println(F("[HELMET] Người công nhân ĐÃ ĐỘI MŨ (Công tắc KW11 ĐÓNG)."));
-        } else {
-            Serial.println(F("[HELMET] Người công nhân CHƯA ĐỘI / ĐÃ THÁO MŨ (Công tắc KW11 MỞ)."));
-            if (currentState != STATE_WARMING_UP) {
-                currentState = STATE_SAFE;
-                alarmCtrl.setState(STATE_SAFE);
+uint8_t activeAlarmSources() {
+    uint8_t sources = 0;
+    const auto state = fallDetector.state();
+    if (state == helmet::FallState::PENDING_CONFIRMATION || state == helmet::FallState::FALL_ALERT)
+        sources |= helmet::AlarmPolicy::FALL;
+    if (gasState == STATE_WARNING) sources |= helmet::AlarmPolicy::GAS_WARNING;
+    if (gasState == STATE_DANGER) sources |= helmet::AlarmPolicy::GAS_DANGER;
+    if (sosActive) sources |= helmet::AlarmPolicy::SOS;
+    if (remoteActive) sources |= helmet::AlarmPolicy::REMOTE;
+    return sources;
+}
+void refreshAlarm(uint32_t now) {
+    alarmPolicy.update(activeAlarmSources());
+    fallAlarm.update(alarmPolicy.soundState(fallDetector.state() == helmet::FallState::PENDING_CONFIRMATION), now);
+}
+void acknowledgeAlarm(uint32_t now) {
+    alarmPolicy.update(activeAlarmSources());
+    alarmPolicy.acknowledge();
+    const auto state = fallDetector.state();
+    if (state == helmet::FallState::PENDING_CONFIRMATION || state == helmet::FallState::FALL_ALERT) {
+        queueHelmetEvent("FALL_ACK", "Wearer confirmed OK using the acknowledgement button");
+        fallRearmRequired = true;
+        if (state == helmet::FallState::PENDING_CONFIRMATION) fallDetector.confirm(now);
+        else fallDetector.clearAlert(now);
+    }
+    sosActive = false;
+    remoteActive = false;
+    // Also cancel a manual beep even if no fall or gas source is active.
+    fallAlarm.begin();
+    refreshAlarm(now);
+    Serial.println("BUTTON: acknowledged, buzzer stopped. Gas stays muted until it clears or escalates.");
+}
+void updateIntegratedServices(uint32_t now) {
+    if (HELMET_ENABLE_WEAR) {
+        static bool raw = worn;
+        static uint32_t changedAt = now;
+        const bool reading = digitalRead(PIN_TOUCH_WORN) == LOW;
+        if (reading != raw) { raw = reading; changedAt = now; }
+        if (raw != worn && now - changedAt >= 50) {
+            worn = raw;
+            Serial.printf("WEAR: %s\n", worn ? "WORN" : "REMOVED");
+        }
+    }
+    if (HELMET_ENABLE_SOS && sosButton.update(digitalRead(PIN_SOS_BUTTON) == LOW, now) == helmet::ButtonEvent::PRESSED) {
+        sosActive = true;
+        queueHelmetEvent("SOS", "Dedicated SOS button pressed");
+    }
+    if (HELMET_ENABLE_GAS) {
+        gasSensor.update();
+        {
+            const auto previous = gasState;
+            const float ppm = gasSensor.getPpm(), adc = gasSensor.getFilteredADC();
+            const auto level = gasPolicy.update(ppm, adc, gasSensor.isWarmedUp(),
+                                                !HELMET_ENABLE_WEAR || worn, gasSensor.isDigitalTriggered());
+            switch (level) {
+                case helmet::GasLevel::WARMING_UP: gasState = STATE_WARMING_UP; break;
+                case helmet::GasLevel::SAFE: gasState = STATE_SAFE; break;
+                case helmet::GasLevel::WARNING: gasState = STATE_WARNING; break;
+                case helmet::GasLevel::DANGER: gasState = STATE_DANGER; break;
+            }
+            if (previous != gasState) {
+                if (gasState == STATE_DANGER) queueHelmetEvent("GAS_DANGER", "Gas danger threshold exceeded", ppm);
+                else if (gasState == STATE_WARNING) queueHelmetEvent("GAS_WARNING", "Gas warning threshold exceeded", ppm);
+                Serial.printf("GAS_STATE: %d ppm=%.1f adc=%.0f\n", gasState, ppm, adc);
             }
         }
-        // Gửi ngay bản tin cập nhật trạng thái đội/chưa đội lên Backend
-        publishTelemetry();
     }
-
-    bool buttonPressed = digitalRead(PIN_SOS_BUTTON) == LOW;
-    if (buttonPressed != lastButtonState &&
-        (now - lastButtonDebounceTime) > DEBOUNCE_DELAY) {
-        lastButtonState = buttonPressed;
-        lastButtonDebounceTime = now;
-        if (buttonPressed) {
-            if (alarmCtrl.isSounding()) {
-                // Còi đang kêu -> bấm nút sẽ TẮT CÒI (tắt tiếng)
-                alarmCtrl.silence();
-                alarmCtrl.setState(STATE_SAFE);
-                Serial.println(F("[BUTTON] Còi đang kêu -> Đã bấm nút tắt còi."));
-                publishTelemetry();
-            } else {
-                // Còi đang tắt -> bấm nút sẽ GỬI SOS khẩn cấp kèm vị trí
-                Serial.println(F("[BUTTON] Còi đang tắt -> Bấm nút gửi SOS khẩn cấp kèm vị trí!"));
-                alarmCtrl.setState(STATE_DANGER);
-                const char* msg = "Tín hiệu SOS khẩn cấp được kích hoạt từ nút bấm trên vành mũ!";
-                if (!publishAlertEvent("SOS", msg)) {
-                    enqueueEvent("SOS", msg);
-                }
+    HelmetCommand command;
+    // Bound work per loop even if a remote publisher floods the command queue.
+    for (uint8_t count = 0; count < 8 && takeHelmetCommand(command); ++count) {
+        if (command.type == HelmetCommandType::MUTE) acknowledgeAlarm(now);
+        else if (command.type == HelmetCommandType::FIND_ON) { remoteActive = true; remoteStartedAt = now; }
+        else if (command.type == HelmetCommandType::FIND_OFF) remoteActive = false;
+        else {
+            if (gasPolicy.setThresholds(command.gasWarn, command.gasDanger)) {
+                gasWarnThreshold = command.gasWarn;
+                gasDangerThreshold = command.gasDanger;
             }
+            if (isfinite(command.impactG) && command.impactG > 1.15f && command.impactG <= 16) pendingImpactThreshold = command.impactG;
+            Serial.printf("THRESHOLDS: gas_warn=%.1f gas_danger=%.1f impact_request=%.2f\n",
+                          gasWarnThreshold, gasDangerThreshold, pendingImpactThreshold);
         }
+    }
+    if (isfinite(pendingImpactThreshold) && fallDetector.setImpactThreshold(pendingImpactThreshold)) pendingImpactThreshold = NAN;
+    if (remoteActive && now - remoteStartedAt >= 10000) remoteActive = false;
+    const float tilt = fallDetector.tiltDegrees();
+    if (fallRearmRequired && isfinite(tilt) && tilt <= helmet::FallConfig{}.tiltDegrees) {
+        fallRearmRequired = false;
+        Serial.println("FALL_REARMED: head returned upright.");
+    }
+    refreshAlarm(now);
+    static uint32_t publishedAt = 0;
+    if (now - publishedAt >= 100) {
+        publishedAt = now;
+        HelmetSnapshot state;
+        state.gasReady = HELMET_ENABLE_GAS && gasSensor.isWarmedUp();
+        if (HELMET_ENABLE_GAS) {
+            state.gasPpm = gasSensor.getPpm(); state.gasAdc = gasSensor.getFilteredADC();
+            state.gasVoltage = gasSensor.getVoltage();
+            state.gasWarmupSeconds = gasSensor.getRemainingWarmupTime();
+        }
+        state.accelerationG = lastAccelerationG;
+        state.tiltDegrees = tilt;
+        state.sensorOk = !sensorFault && isfinite(lastAccelerationG);
+        state.calibrated = hasPosture;
+        state.wornKnown = HELMET_ENABLE_WEAR;
+        state.worn = worn;
+        state.fall = fallDetector.state() == helmet::FallState::FALL_ALERT;
+        state.buzzerOn = alarmPolicy.soundState(fallDetector.state() == helmet::FallState::PENDING_CONFIRMATION)
+                         != helmet::FallState::MONITORING;
+        strlcpy(state.fallState, helmet::fallStateName(fallDetector.state()), sizeof(state.fallState));
+        updateHelmetSnapshot(state);
+    }
+    static uint32_t statusAt = 0;
+    if (now - statusAt >= 2000) {
+        statusAt = now;
+        Serial.printf("STATUS: worn=%s gas=%d fall=%s button=%s buzzer=%d\n",
+                      HELMET_ENABLE_WEAR ? (worn ? "YES" : "NO") : "UNKNOWN", gasState,
+                      helmet::fallStateName(fallDetector.state()),
+                      digitalRead(CONFIRM_BUTTON_PIN) == LOW ? "LOW" : "HIGH", buzzerActive);
+        if (HELMET_ENABLE_GAS) Serial.printf("GAS: ppm=%.1f adc=%.0f voltage=%.3f V warmup_remaining=%lu s\n",
+            gasSensor.getPpm(), gasSensor.getFilteredADC(), gasSensor.getVoltage(),
+            static_cast<unsigned long>(gasSensor.getRemainingWarmupTime()));
     }
 }
 
-// ==========================================
-// KẾT NỐI MẠNG & MQTT
-// ==========================================
+// So sánh tuyệt đối là cố ý: cùng một mẫu raw sẽ cho ra cùng một giá trị float.
+bool sameSample(const Reading& a, const Reading& b) {
+    return a.ax == b.ax && a.ay == b.ay && a.az == b.az &&
+           a.gx == b.gx && a.gy == b.gy && a.gz == b.gz &&
+           a.temperature == b.temperature;
+}
 
-void connectNetwork() {
-    unsigned long now = millis();
+void setup() {
+    digitalWrite(BUZZER_CONTROL_PIN, LOW);
+    pinMode(BUZZER_CONTROL_PIN, OUTPUT);
+    buzzerReady = true;
+    if (BUZZER_IS_PASSIVE) {
+        buzzerReady = ledcSetup(BUZZER_PWM_CHANNEL, BUZZER_TONE_HZ, BUZZER_PWM_BITS) != 0;
+        if (buzzerReady) ledcAttachPin(BUZZER_CONTROL_PIN, BUZZER_PWM_CHANNEL);
+    }
+    fallAlarm.begin();
+    pinMode(CONFIRM_BUTTON_PIN, INPUT_PULLUP);
+    confirmButton.begin(digitalRead(CONFIRM_BUTTON_PIN) == LOW, millis());
+    Serial.begin(115200);
+    delay(300);
+    Serial.println("SMART_HELMET INTEGRATED_V2_AUTOCONNECT: c=calibrate, p=reference, x=cancel, k/r=mute, b=beep, s=SOS.");
+    Serial.printf("FALL_CONFIG: tilt>%.1f deg; D27=mute, buzzer=D13.\n", helmet::FallConfig{}.tiltDegrees);
+    if (!buzzerReady) Serial.println("BUZZER_FAULT: PWM initialization failed.");
+    else if (BUZZER_IS_PASSIVE) {
+        Serial.printf("BUZZER_READY: passive PWM %lu Hz on GPIO%d.\n",
+                      static_cast<unsigned long>(BUZZER_TONE_HZ), BUZZER_CONTROL_PIN);
+    } else Serial.printf("BUZZER_READY: active-high driver on GPIO%d.\n", BUZZER_CONTROL_PIN);
+    Serial.printf("BUTTON_READY: GPIO%d to GND, INPUT_PULLUP, press to acknowledge and stop buzzer (30 ms debounce).\n",
+                  CONFIRM_BUTTON_PIN);
+    Serial.printf("BUTTON_LEVEL: GPIO%d=%s (released=HIGH, pressed=LOW).\n",
+                  CONFIRM_BUTTON_PIN, digitalRead(CONFIRM_BUTTON_PIN) == LOW ? "LOW" : "HIGH");
+    if (HELMET_ENABLE_WEAR) {
+        pinMode(PIN_TOUCH_WORN, INPUT_PULLUP);
+        worn = digitalRead(PIN_TOUCH_WORN) == LOW;
+    }
+    if (HELMET_ENABLE_SOS) {
+        pinMode(PIN_SOS_BUTTON, INPUT_PULLUP);
+        sosButton.begin(digitalRead(PIN_SOS_BUTTON) == LOW, millis());
+    }
+    if (HELMET_ENABLE_GAS) gasSensor.begin();
+    beginHelmetServices();
+    loadPosture();
 
-    // Kết nối Wi-Fi
-    if (WiFi.status() != WL_CONNECTED) {
-        if (now - lastWifiAttempt < MQTT_RECONNECT_INTERVAL_MS) return;
-        lastWifiAttempt = now;
-        Serial.printf("[WIFI] Đang kết nối tới %s...\n", WIFI_SSID);
-        WiFi.mode(WIFI_STA);
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, 100000);
+    Wire.setTimeOut(20);
+
+    Serial.println("\n=== MPU6050 connection test ===");
+    Serial.printf("I2C: SDA=GPIO%d, SCL=GPIO%d, 100 kHz\n",
+                  I2C_SDA_PIN, I2C_SCL_PIN);
+
+    scanBus();
+
+    sensorAddress = findSensor();
+    if (sensorAddress == 0) {
+        Serial.println("RESULT: FAIL - no device at 0x68 or 0x69.");
         return;
     }
 
-    // Sau khi kết nối Wi-Fi, lấy tọa độ dựa theo Wi-Fi (nếu chưa có)
-    if (!hasWifiGeoLocation || (now - lastWifiGeoAttempt > 600000UL)) {
-        lastWifiGeoAttempt = now;
-        fetchWifiGeolocation();
+    uint8_t whoAmI = 0;
+    if (!readRegister(sensorAddress, REG_WHO_AM_I, whoAmI)) {
+        Serial.println("RESULT: FAIL - cannot read WHO_AM_I.");
+        sensorAddress = 0;
+        return;
     }
 
-    // Kết nối MQTT Broker
-    if (mqttClient.connected()) return;
-    if (now - lastMqttAttempt < MQTT_RECONNECT_INTERVAL_MS) return;
-    lastMqttAttempt = now;
+    Serial.printf("WHO_AM_I @0x%02X = 0x%02X\n",
+                  sensorAddress, whoAmI);
 
-    String clientId = String("helmet-") + DEVICE_ID + "-" + String((uint32_t)ESP.getEfuseMac(), HEX);
-    Serial.printf("[MQTT] Kết nối tới Broker %s:%d với ClientId: %s\n", MQTT_BROKER, MQTT_PORT, clientId.c_str());
-
-    bool connected;
-    if (strlen(MQTT_USERNAME) > 0) {
-        connected = mqttClient.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD,
-                                       TOPIC_STATUS, 0, true, "{\"online\":false}");
-    } else {
-        connected = mqttClient.connect(clientId.c_str(),
-                                       TOPIC_STATUS, 0, true, "{\"online\":false}");
+    if (whoAmI != WHO_AM_I_MPU6050) {
+        Serial.println("RESULT: FAIL - device is not MPU6050.");
+        sensorAddress = 0;
+        return;
     }
 
-    if (connected) {
-        Serial.println(F("[MQTT] Kết nối thành công!"));
-        mqttClient.publish(TOPIC_STATUS, "{\"online\":true}", true);
-        mqttClient.subscribe(TOPIC_COMMAND);
-        flushEventQueue();
-        publishTelemetry();
-    } else {
-        Serial.printf("[MQTT] Kết nối thất bại, rc=%d. Thử lại sau...\n", mqttClient.state());
-    }
-}
-
-// ==========================================
-// SETUP & LOOP CHÍNH
-// ==========================================
-
-void setup() {
-    Serial.begin(115200);
-    delay(1000);
-
-    Serial.println();
-    Serial.println(F("=================================================="));
-    Serial.println(F("         SMART HELMET - MŨ BẢO HỘ THÔNG MINH      "));
-    Serial.println(F("  Khí độc MQ-135 | Còi cảnh báo | GPS & Định vị Wi-Fi "));
-    Serial.println(F("=================================================="));
-
-    // Cấu hình chân công tắc hành trình KW11 và nút SOS
-    pinMode(PIN_TOUCH_WORN, INPUT_PULLUP);
-    pinMode(PIN_SOS_BUTTON, INPUT_PULLUP);
-
-    // Khởi tạo cảm biến và còi
-    alarmCtrl.begin();
-    mq135.begin();
-    gpsSerial.begin(GPS_BAUD_RATE, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
-
-    // Đọc trạng thái công tắc ban đầu
-    systemEnabled = isSwitchPressedRaw();
-    lastSwitchState = systemEnabled;
-    if (systemEnabled) {
-        currentState = STATE_WARMING_UP;
-        alarmCtrl.setState(STATE_WARMING_UP);
-    } else {
-        currentState = STATE_SAFE;
-        alarmCtrl.setState(STATE_SAFE);
+    if (!configureSensor()) {
+        Serial.println("RESULT: FAIL - register configuration failed.");
+        sensorAddress = 0;
+        return;
     }
 
-    // Cấu hình MQTT
-    mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
-    mqttClient.setCallback(onMqttMessage);
-    mqttClient.setBufferSize(2048);   // bản tin wifiscan có thể tới ~1.2KB
-    WiFi.setAutoReconnect(true);
+    delay(100);
 
-    Serial.println(F("[INFO] Hệ thống đã khởi động. Đang kết nối mạng..."));
+    Reading firstReading{};
+    if (!readReading(firstReading)) {
+        Serial.println("RESULT: FAIL - cannot read first sample.");
+        sensorAddress = 0;
+        return;
+    }
+
+    float gravity = magnitude(firstReading.ax,
+                              firstReading.ay,
+                              firstReading.az);
+
+    Serial.printf("First sample: |a|=%.2f g, temperature=%.2f C\n",
+                  gravity, firstReading.temperature);
+
+    if (gravity < 0.5f || gravity > 1.5f) {
+        Serial.println("Startup motion detected; posture is NOT auto-calibrated.");
+    }
+
+    Serial.println("RESULT: PASS - MPU6050 is responding.");
+    Serial.println("Tilt / shake the board: values should change.\n");
 }
 
 void loop() {
-    // 1. Kiểm tra công tắc nhận biết đội mũ (KW11) & nút nhấn SOS
-    checkControls();
+    // Deadlines continue to run even when sensor paths below return early.
+    const uint32_t inputTime = millis();
+    fallDetector.tick(inputTime);
+    handleConfirmButton(inputTime);
+    handleCommands();
+    updateIntegratedServices(millis());
+    static uint32_t lastSample = 0;
+    static uint32_t lastPrint = 0;
+    static Reading previous{};
+    static bool hasPrevious = false;
+    static uint16_t stallCount = 0;
+    static uint16_t samplesSincePrint = 0;
+    static uint8_t consecutiveReadFailures = 0;
 
-    // 2. Đọc luồng GPS NMEA từ UART2 (luôn duy trì để định vị tìm mũ)
-    readGps();
+    if (millis() - lastSample < SAMPLE_INTERVAL_MS) {
+        return;
+    }
+    lastSample = millis();
 
-    // 2b. Quét Wi-Fi để định vị khu vực (phòng 301 / hành lang)
-    handleWifiFingerprint();
-
-    // 3. Cập nhật cảm biến khí MQ-135 và còi
-    mq135.update();
-    alarmCtrl.update();
-
-    // 4. Duy trì kết nối Wi-Fi và MQTT (luôn duy trì để giữ trạng thái Online)
-    connectNetwork();
-    if (mqttClient.connected()) {
-        mqttClient.loop();
-        flushEventQueue();
+    if (sensorAddress == 0) {
+        if (!sensorFault) {
+            sensorFault = true;
+            Serial.println("SENSOR_FAULT: MPU6050 unavailable, retrying.");
+        }
+        consecutiveReadFailures = 0;
+        hasPrevious = false;
+        stallCount = 0;
+        samplesSincePrint = 0;
+        ensureSensor(true);
+        return;
     }
 
-    // 5. Đánh giá ngưỡng nồng độ khí độc & điều khiển còi (chỉ khi đang đội mũ)
-    SystemState previousState = currentState;
+    // A transient bus error cancels calibration, but should not cause
+    // an immediate reconfiguration. Recover after three failed sample cycles.
+    auto handleReadFailure = [&](const char* operation) {
+        hasPrevious = false;
+        stallCount = 0;
+        samplesSincePrint = 0;
+        resetFallDetector("missing sensor sample");
+        ++consecutiveReadFailures;
+        Serial.printf("MPU6050 read failure %u/%u: %s, I2C=%u, bytes=%u\n",
+                      consecutiveReadFailures, MAX_CONSECUTIVE_READ_FAILURES,
+                      operation, lastI2cError, lastReadBytes);
+        if (consecutiveReadFailures >= MAX_CONSECUTIVE_READ_FAILURES) {
+            if (!sensorFault) {
+                sensorFault = true;
+                Serial.println("SENSOR_FAULT: repeated MPU6050 read failures.");
+            }
+            consecutiveReadFailures = 0;
+            sensorAddress = 0;
+            ensureSensor(true);
+        }
+    };
 
-    if (!systemEnabled) {
-        // Chưa đội mũ: giữ trạng thái an toàn
-        currentState = STATE_SAFE;
-    } else if (!mq135.isWarmedUp()) {
-        currentState = STATE_WARMING_UP;
+    uint8_t power = 0;
+    if (!readRegister(sensorAddress, REG_PWR_MGMT_1, power)) {
+        handleReadFailure("power register");
+        return;
+    }
+
+    if ((power & PWR_MGMT_1_SLEEP) != 0) {
+        consecutiveReadFailures = 0;
+        hasPrevious = false;
+        stallCount = 0;
+        samplesSincePrint = 0;
+        Serial.printf("MPU6050 went to sleep (0x%02X).\n", power);
+        ensureSensor(true);
+        return;
+    }
+
+    Reading reading{};
+    if (!readReading(reading)) {
+        handleReadFailure("sample");
+        return;
+    }
+    lastAccelerationG = magnitude(reading.ax, reading.ay, reading.az);
+    consecutiveReadFailures = 0;
+    if (sensorFault) {
+        sensorFault = false;
+        Serial.println("SENSOR_RECOVERED: valid MPU6050 samples resumed.");
+    }
+
+    if (hasPrevious && sameSample(reading, previous)) {
+        ++stallCount;
+        if (stallCount >= STALL_SAMPLES) {
+            stallCount = 0;
+            hasPrevious = false;
+            samplesSincePrint = 0;
+            Serial.println("Data frozen - re-initialising MPU6050.");
+            ensureSensor(true);
+            return;
+        }
     } else {
-        float currentPpm = mq135.getPpm();
-        float currentADC = mq135.getFilteredADC();
-        bool digitalAlarm = mq135.isDigitalTriggered();
-
-        if (currentPpm >= GAS_DANGER_PPM_DEFAULT || currentADC >= ADC_THRESHOLD_DANGER || digitalAlarm) {
-            currentState = STATE_DANGER;
-        } else if (currentPpm >= GAS_WARN_PPM_DEFAULT || currentADC >= ADC_THRESHOLD_WARNING) {
-            currentState = STATE_WARNING;
-        } else if (currentPpm <= (GAS_WARN_PPM_DEFAULT - GAS_HYSTERESIS_PPM) &&
-                   currentADC <= (ADC_THRESHOLD_WARNING - ADC_HYSTERESIS)) {
-            currentState = STATE_SAFE;
-        }
+        stallCount = 0;
     }
 
-    // Nếu trạng thái cảnh báo thay đổi -> điều khiển còi và gửi bản tin
-    if (currentState != previousState) {
-        alarmCtrl.setState(currentState);
+    previous = reading;
+    hasPrevious = true;
+    ++samplesSincePrint;
 
-        if (currentState == STATE_DANGER) {
-            Serial.println(F("[ALARM] NỒNG ĐỘ KHÍ VƯỢT NGƯỠNG NGUY HIỂM! BẬT CÒI BÁO ĐỘNG!"));
-            const char* msg = "Cảnh báo nồng độ khí độc nguy hiểm phát hiện từ mũ!";
-            if (!publishAlertEvent("GAS_DANGER", msg)) {
-                enqueueEvent("GAS_DANGER", msg);
-            }
-        } else if (currentState == STATE_WARNING) {
-            Serial.println(F("[WARN] Nồng độ khí ở mức cảnh báo!"));
-            const char* msg = "Cảnh báo nồng độ khí độc tăng cao!";
-            if (!publishAlertEvent("GAS_WARNING", msg)) {
-                enqueueEvent("GAS_WARNING", msg);
-            }
-        } else if (currentState == STATE_SAFE) {
-            Serial.println(F("[INFO] Nồng độ khí đã trở về an toàn. Tắt còi."));
-        }
+    const bool wasCalibrating = calibration.countdown || calibration.collecting;
+    updateCalibration(reading, millis());
+    if (!wasCalibrating) {
+        fallDetector.sample({reading.ax, reading.ay, reading.az},
+                            {reading.gx, reading.gy, reading.gz}, millis(),
+                            (!HELMET_ENABLE_WEAR || worn) && !fallRearmRequired);
     }
 
-    // 6. Định kỳ gửi Telemetry lên Backend mỗi 3 giây (gửi cả trạng thái đang đội hoặc chưa đội)
-    unsigned long now = millis();
-    if (now - lastTelemetryPublish >= TELEMETRY_INTERVAL_MS) {
-        lastTelemetryPublish = now;
-        publishTelemetry();
+    // Vẫn đọc mỗi 20 ms, nhưng chỉ in một dòng mỗi 500 ms.
+    if (millis() - lastPrint < PRINT_INTERVAL_MS) {
+        return;
     }
+    lastPrint = millis();
 
-    // 7. Định kỳ in log trạng thái ra Serial Monitor (mỗi 1 giây)
-    if (now - lastSerialPrint >= SERIAL_PRINT_INTERVAL) {
-        lastSerialPrint = now;
+    float gravity = magnitude(reading.ax, reading.ay, reading.az);
 
-        double lat, lng;
-        String source;
-        bool isFix;
-        getCurrentLocation(lat, lng, source, isFix);
+    Serial.printf(
+        "samples/500ms=%u | a[g] %6.2f %6.2f %6.2f "
+        "|a|=%5.2f | gyro_raw[dps] %7.2f %7.2f %7.2f | %.1f C",
+        samplesSincePrint,
+        reading.ax, reading.ay, reading.az, gravity,
+        reading.gx, reading.gy, reading.gz,
+        reading.temperature
+    );
 
-        Serial.print(F("["));
-        Serial.print(now / 1000);
-        Serial.print(F("s] Trạng thái: "));
-        switch (currentState) {
-            case STATE_WARMING_UP: Serial.print(F("ĐANG SẤY CẢM BIẾN")); break;
-            case STATE_SAFE:       Serial.print(F("AN TOÀN")); break;
-            case STATE_WARNING:    Serial.print(F("CẢNH BÁO")); break;
-            case STATE_DANGER:     Serial.print(F("NGUY HIỂM (CÒI KÊU)")); break;
-            default:               Serial.print(F("UNKNOWN")); break;
-        }
-
-        if (!systemEnabled) {
-            Serial.print(F(" | PPM: "));
-            Serial.print(mq135.getPpm(), 1);
-            Serial.print(F(" | Công tắc: TẮT"));
-        } else if (!mq135.isWarmedUp()) {
-            Serial.print(F(" | PPM: "));
-            Serial.print(mq135.getPpm(), 1);
-            Serial.print(F(" | Còn sấy: "));
-            Serial.print(mq135.getRemainingWarmupTime());
-            Serial.println(F("s..."));
-        } else {
-            Serial.print(F(" | Khí: "));
-            Serial.print(mq135.getPpm(), 1);
-            Serial.print(F(" ppm (ADC: "));
-            Serial.print((int)mq135.getFilteredADC());
-            Serial.print(F(", "));
-            Serial.print(mq135.getVoltage(), 2);
-            Serial.print(F("V) | Vị trí ("));
-            Serial.print(source == "gps" ? F("GPS NEO-6M") : F("Wi-Fi"));
-            Serial.print(F("): "));
-            Serial.print(lat, 6);
-            Serial.print(F(", "));
-            Serial.print(lng, 6);
-            if (source == "gps") {
-                Serial.print(F(" ("));
-                Serial.print(gps.satellites.value());
-                Serial.print(F(" vệ tinh)"));
-            }
-            Serial.print(F(" | Công tắc: "));
-            Serial.print(isSwitchPressedRaw() ? F("BẬT") : F("TẮT"));
-            Serial.println();
-        }
-    }
+    printPostureAngle();
+    samplesSincePrint = 0;
 }

@@ -16,6 +16,7 @@ import com.helmet.service.TelemetryService;
 import com.helmet.service.WifiFingerprintService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -31,6 +32,18 @@ public class MqttInboundHandler {
     private final WifiFingerprintService wifiFingerprintService;
     private final ObjectMapper objectMapper;
 
+    /** Dùng trong unit test của nhóm: không có định vị khu vực. */
+    public MqttInboundHandler(TelemetryService telemetryService,
+                              AlertService alertService,
+                              DeviceService deviceService,
+                              DeviceStateService deviceStateService,
+                              SettingsService settingsService,
+                              ObjectMapper objectMapper) {
+        this(telemetryService, alertService, deviceService, deviceStateService, settingsService,
+                null, null, objectMapper);
+    }
+
+    @Autowired
     public MqttInboundHandler(TelemetryService telemetryService,
                               AlertService alertService,
                               DeviceService deviceService,
@@ -79,14 +92,19 @@ public class MqttInboundHandler {
                 case "alert":
                 case "event": {
                     EventMessage msg = objectMapper.readValue(payload, EventMessage.class);
-                    alertService.handleEventWithValue(
+                    if ("FALL_ACK".equalsIgnoreCase(msg.resolveType())) {
+                        alertService.acknowledgeFallFromDevice(deviceId, msg.getRelatedFallId());
+                        break;
+                    }
+                    alertService.handleFirmwareEvent(
                             deviceId,
                             msg.resolveType(),
                             msg.resolveValue(),
                             msg.resolveLatitude(),
                             msg.resolveLongitude(),
                             msg.getMessage(),
-                            msg.resolveLocationSource()
+                            msg.resolveLocationSource(),
+                            msg.getEventId()
                     );
                     break;
                 }
@@ -116,13 +134,13 @@ public class MqttInboundHandler {
                 case "wifiscan": {
                     // Bản quét Wi-Fi của mũ -> kNN fingerprint -> khu vực
                     WifiScanMessage msg = objectMapper.readValue(payload, WifiScanMessage.class);
-                    wifiFingerprintService.processScan(deviceId, msg);
+                    if (wifiFingerprintService != null) wifiFingerprintService.processScan(deviceId, msg);
                     break;
                 }
                 case "location": {
                     // Khu vực đã được tính sẵn ở nơi khác (không bắt buộc)
                     LocationMessage msg = objectMapper.readValue(payload, LocationMessage.class);
-                    locationService.processLocation(deviceId, msg);
+                    if (locationService != null) locationService.processLocation(deviceId, msg);
                     break;
                 }
                 case "state": {

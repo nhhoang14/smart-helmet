@@ -15,6 +15,12 @@ public class EventMessage {
 
     private String type;
 
+    @JsonProperty("event_id")
+    private String eventId;
+
+    @JsonProperty("related_fall_id")
+    private String relatedFallId;
+
     private String message;
 
     private Double value;

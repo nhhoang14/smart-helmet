@@ -4,6 +4,7 @@ import com.helmet.dto.LocationMessage;
 import com.helmet.dto.TelemetryMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -17,29 +18,44 @@ public class TelemetrySimulator {
     private static final Logger log = LoggerFactory.getLogger(TelemetrySimulator.class);
 
     private final TelemetryService telemetryService;
+    private final AlertService alertService;
+    // Tùy chọn: giả lập vị trí khu vực cho mũ mô phỏng (null trong unit test)
     private final LocationService locationService;
     private final Random random = new Random();
 
     @Value("${helmet.simulation.enabled:true}")
     private boolean enabled;
 
+    @Value("${helmet.simulation.device-id:HELMET_002}")
+    private String simulationDeviceId;
+
     @Value("${helmet.simulation.zone-enabled:true}")
     private boolean zoneEnabled;
 
-    @Value("${helmet.default-device-id:HELMET_002}")
-    private String defaultDeviceId;
-
     private double currentGas = 185.0;
     private int stepCount = 0;
+    private int previousGasLevel = 0;
 
-    public TelemetrySimulator(TelemetryService telemetryService, LocationService locationService) {
+    public TelemetrySimulator(TelemetryService telemetryService, AlertService alertService) {
+        this(telemetryService, alertService, null);
+    }
+
+    @Autowired
+    public TelemetrySimulator(TelemetryService telemetryService, AlertService alertService,
+                              LocationService locationService) {
         this.telemetryService = telemetryService;
+        this.alertService = alertService;
         this.locationService = locationService;
     }
 
     @Scheduled(fixedDelayString = "${helmet.simulation.interval-ms:2000}")
     public void generateSimulatedTelemetry() {
         if (!enabled) return;
+        // The real helmet must never receive generated measurements.
+        if (!"HELMET_002".equals(simulationDeviceId)) {
+            log.error("Simulation skipped: only HELMET_002 may receive generated data.");
+            return;
+        }
 
         stepCount++;
         // Dao động nồng độ khí thực tế quanh ngưỡng 150 - 260 ppm (Mức AN TOÀN < 300 ppm)
@@ -72,7 +88,11 @@ public class TelemetrySimulator {
         TelemetryMessage msg = new TelemetryMessage();
         msg.setGas(Math.round(currentGas * 10.0) / 10.0);
         msg.setWorn(true);
-        msg.setFall(false);
+        final boolean simulatedFall = stepCount % 120 == 100;
+        msg.setFall(simulatedFall);
+        msg.setSimulation(true);
+        msg.setFallDetection("firmware_v2");
+        msg.setLocationSource("simulation");
         msg.setLat(lat);
         msg.setLng(lng);
         msg.setFlatAccMagnitude(Math.round(accMag * 100.0) / 100.0);
@@ -86,20 +106,31 @@ public class TelemetrySimulator {
         Map<String, Object> gps = new HashMap<>();
         gps.put("latitude", lat);
         gps.put("longitude", lng);
-        gps.put("fix", true);
+        gps.put("fix", false);
+        gps.put("source", "simulation");
         msg.setGps(gps);
         msg.setIsWorn(true);
         msg.setTimestamp(System.currentTimeMillis());
 
-        // Chỉ giả lập một thiết bị khi chưa có phần cứng thật.
-        telemetryService.processTelemetry(defaultDeviceId, msg);
+        telemetryService.processTelemetry(simulationDeviceId, msg);
+        int gasLevel = currentGas >= 600 ? 2 : currentGas >= 300 ? 1 : 0;
+        if (gasLevel != previousGasLevel && gasLevel > 0) {
+            alertService.handleEventWithValue(simulationDeviceId,
+                    gasLevel == 2 ? "GAS_DANGER" : "GAS_WARNING", msg.getGas(), lat, lng,
+                    "Canh bao khi mo phong - HELMET_002", "simulation");
+        }
+        previousGasLevel = gasLevel;
+        if (simulatedFall) {
+            alertService.handleEventWithValue(simulationDeviceId, "FALL", accMag, lat, lng,
+                    "Su co te nga mo phong - HELMET_002", "simulation");
+        }
 
-        // Giả lập vị trí khu vực: cứ 10 chu kỳ (~20 giây) đổi giữa phòng 301 và hành lang
-        if (zoneEnabled) {
+        // Giả lập vị trí khu vực cho mũ mô phỏng: cứ 10 chu kỳ (~20 giây) đổi phòng 301 / hành lang
+        if (zoneEnabled && locationService != null) {
             LocationMessage loc = new LocationMessage();
             loc.setZone((stepCount / 10) % 2 == 0 ? "phong_301" : "hanh_lang");
             loc.setSource("simulation");
-            locationService.processLocation(defaultDeviceId, loc);
+            locationService.processLocation(simulationDeviceId, loc);
         }
     }
 }

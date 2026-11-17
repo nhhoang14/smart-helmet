@@ -82,12 +82,12 @@
                     </div>
                     <div class="stat-primary-text">
                         <span id="gas-stat"
-                            th:text="${state.gasPpm != null ? #numbers.formatDecimal(state.gasPpm, 1, 0) : '0'}">361</span>
+                            th:text="${state.gasPpm != null ? #numbers.formatDecimal(state.gasPpm, 1, 0) : '—'}">—</span>
                         <span class="unit-text">ppm</span>
                     </div>
                     <div class="stat-subtext">
                         <span id="gas-label" class="text-safe"
-                            th:text="${state.gasPpm != null and threshold != null and state.gasPpm >= threshold.gasWarn ? 'Vượt ngưỡng' : 'An toàn'}">An
+                            th:text="${state.gasPpm == null ? 'Chưa có dữ liệu' : (threshold != null and state.gasPpm >= threshold.gasWarn ? 'Vượt ngưỡng' : 'An toàn')}">An
                             toàn</span>
                         · ngưỡng <span id="gas-threshold-label"
                             th:text="${threshold != null ? threshold.gasWarn : 450}">450</span> ppm
@@ -106,7 +106,7 @@
                         </span>
                         <span class="stat-card-title">Tình trạng mũ</span>
                     </div>
-                    <div class="stat-primary-text" id="worn-stat" th:text="${state.isWorn ? 'Đang đội' : 'Không đội'}">
+                    <div class="stat-primary-text" id="worn-stat" th:text="${state.wornKnown == false ? 'Chưa xác định' : (state.isWorn ? 'Đang đội mũ' : 'Chưa đội mũ')}">
                         Đang đội</div>
                     <div class="stat-subtext" id="worn-subtext"
                         th:text="${state.isWorn ? 'Cảm biến đội mũ hoạt động' : 'Chưa đội mũ'}">Cảm biến đội mũ hoạt
@@ -142,7 +142,7 @@
                         </div>
                         <div class="air-quality-value">
                             <strong id="air-quality-number"
-                                th:text="${state.gasPpm != null ? #numbers.formatDecimal(state.gasPpm, 1, 0) : '0'}">361</strong>
+                                th:text="${state.gasPpm != null ? #numbers.formatDecimal(state.gasPpm, 1, 0) : '—'}">—</strong>
                             <small>PPM</small>
                         </div>
                     </div>
