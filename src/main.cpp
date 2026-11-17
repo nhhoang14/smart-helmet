@@ -33,7 +33,10 @@ bool hasWifiGeoLocation = false;
 
 // Trạng thái công tắc (KW11 / SOS) và debounce
 bool lastSwitchState = false;
+bool systemEnabled = false;
+bool lastButtonState = false;
 unsigned long lastDebounceTime = 0;
+unsigned long lastButtonDebounceTime = 0;
 const unsigned long DEBOUNCE_DELAY = 50;
 
 // Hàng đợi lưu trữ cảnh báo khi mất mạng
@@ -188,8 +191,10 @@ void publishTelemetry() {
     doc["gas"] = mq135.getPpm();
     doc["adc"] = (int)mq135.getFilteredADC();
     doc["voltage"] = mq135.getVoltage();
-    doc["worn"] = true;
+    doc["worn"] = systemEnabled;
     doc["fall"] = false;
+    doc["buzzer_on"] = alarmCtrl.isSounding();
+    doc["buzzer_state"] = alarmCtrl.isSounding() ? "ON" : "OFF";
     doc["lat"] = lat;
     doc["lng"] = lng;
     doc["location_source"] = source;
@@ -279,14 +284,32 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     serializeJson(doc, Serial);
     Serial.println();
 
-    if (doc.containsKey("buzzer")) {
-        bool buzzerOn = doc["buzzer"].as<bool>();
-        if (buzzerOn) {
+    bool shouldBuzzerOn = false;
+    bool hasBuzzerCmd = false;
+
+    if (doc.containsKey("action")) {
+        const char* action = doc["action"];
+        if (strcasecmp(action, "FIND_HELMET") == 0) {
+            hasBuzzerCmd = true;
+            const char* state = doc["payload"]["state"] | "ON";
+            shouldBuzzerOn = (strcasecmp(state, "ON") == 0);
+        }
+    } else if (doc.containsKey("buzzer")) {
+        hasBuzzerCmd = true;
+        shouldBuzzerOn = doc["buzzer"].as<bool>();
+    }
+
+    if (hasBuzzerCmd) {
+        if (shouldBuzzerOn) {
             alarmCtrl.setState(STATE_DANGER);
-            Serial.println(F("[CMD] Bật còi báo động theo lệnh Web."));
+            Serial.println(F("[CMD] Bật còi báo động để Tìm mũ!"));
+            // Bật còi và lập tức gửi vị trí hiện tại lên server
+            publishTelemetry();
         } else {
+            alarmCtrl.silence();
             alarmCtrl.setState(STATE_SAFE);
             Serial.println(F("[CMD] Tắt còi theo lệnh Web."));
+            publishTelemetry();
         }
     }
 }
@@ -296,51 +319,54 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
 // ==========================================
 
 bool isSwitchPressedRaw() {
-    // Chân công tắc nối GND, cấu hình INPUT_PULLUP (khi ấn là LOW)
-    // Hỗ trợ cả GPIO4 (KW11-3Z-2) và GPIO27 (nút SOS)
-    return (digitalRead(PIN_TOUCH_WORN) == LOW) || (digitalRead(PIN_SOS_BUTTON) == LOW);
+    // Công tắc hành trình KW11 nối GND và GPIO14 (INPUT_PULLUP):
+    // Khi đội mũ, công tắc bị nén đóng lại -> LOW (ĐANG ĐỘI).
+    // Khi chưa ấn/tháo mũ -> HIGH (CHƯA ĐỘI).
+    return digitalRead(PIN_TOUCH_WORN) == LOW;
 }
 
-void onSwitchPressed() {
-    Serial.println();
-    Serial.println(F("=================================================="));
-    Serial.println(F("🔔 [SWITCH] CÔNG TẮC ĐƯỢC ẤN -> KÍCH HOẠT SOS!"));
-    Serial.println(F("=================================================="));
-
-    // 1. Phản hồi âm thanh còi (bíp xác nhận cho người đội mũ)
-    alarmCtrl.triggerBeep(250);
-
-    // 2. Lấy vị trí: ưu tiên GPS NEO-6M, nếu trong nhà thì lấy Wi-Fi
-    double lat, lng;
-    String source;
-    bool isFix;
-    getCurrentLocation(lat, lng, source, isFix);
-
-    Serial.printf("[SWITCH] Tọa độ: lat=%.6f, lng=%.6f | Nguồn định vị: %s\n",
-                  lat, lng, (source == "gps" ? "GPS NEO-6M (Ngoài trời)" : "Wi-Fi (Trong nhà)"));
-
-    // 3. Gửi sự kiện SOS khẩn cấp về backend
-    const char* alertMsg = "Nút khẩn cấp SOS trên mũ đã được bấm!";
-    if (!publishAlertEvent("SOS", alertMsg)) {
-        enqueueEvent("SOS", alertMsg);
-    }
-
-    // 4. Cập nhật ngay bản tin telemetry
-    publishTelemetry();
-}
-
-void checkSwitch() {
+void checkControls() {
     bool reading = isSwitchPressedRaw();
     unsigned long now = millis();
 
-    if (reading != lastSwitchState) {
-        if ((now - lastDebounceTime) > DEBOUNCE_DELAY) {
-            lastSwitchState = reading;
-            lastDebounceTime = now;
+    if (reading != lastSwitchState && (now - lastDebounceTime) > DEBOUNCE_DELAY) {
+        lastSwitchState = reading;
+        lastDebounceTime = now;
+        systemEnabled = reading;
 
-            if (reading) {
-                // Nhấn công tắc
-                onSwitchPressed();
+        if (systemEnabled) {
+            Serial.println(F("[HELMET] Người công nhân ĐÃ ĐỘI MŨ (Công tắc KW11 ĐÓNG)."));
+        } else {
+            Serial.println(F("[HELMET] Người công nhân CHƯA ĐỘI / ĐÃ THÁO MŨ (Công tắc KW11 MỞ)."));
+            if (currentState != STATE_WARMING_UP) {
+                currentState = STATE_SAFE;
+                alarmCtrl.setState(STATE_SAFE);
+            }
+        }
+        // Gửi ngay bản tin cập nhật trạng thái đội/chưa đội lên Backend
+        publishTelemetry();
+    }
+
+    bool buttonPressed = digitalRead(PIN_SOS_BUTTON) == LOW;
+    if (buttonPressed != lastButtonState &&
+        (now - lastButtonDebounceTime) > DEBOUNCE_DELAY) {
+        lastButtonState = buttonPressed;
+        lastButtonDebounceTime = now;
+        if (buttonPressed) {
+            if (alarmCtrl.isSounding()) {
+                // Còi đang kêu -> bấm nút sẽ TẮT CÒI (tắt tiếng)
+                alarmCtrl.silence();
+                alarmCtrl.setState(STATE_SAFE);
+                Serial.println(F("[BUTTON] Còi đang kêu -> Đã bấm nút tắt còi."));
+                publishTelemetry();
+            } else {
+                // Còi đang tắt -> bấm nút sẽ GỬI SOS khẩn cấp kèm vị trí
+                Serial.println(F("[BUTTON] Còi đang tắt -> Bấm nút gửi SOS khẩn cấp kèm vị trí!"));
+                alarmCtrl.setState(STATE_DANGER);
+                const char* msg = "Tín hiệu SOS khẩn cấp được kích hoạt từ nút bấm trên vành mũ!";
+                if (!publishAlertEvent("SOS", msg)) {
+                    enqueueEvent("SOS", msg);
+                }
             }
         }
     }
@@ -416,9 +442,20 @@ void setup() {
     pinMode(PIN_SOS_BUTTON, INPUT_PULLUP);
 
     // Khởi tạo cảm biến và còi
-    mq135.begin();
     alarmCtrl.begin();
+    mq135.begin();
     gpsSerial.begin(GPS_BAUD_RATE, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+
+    // Đọc trạng thái công tắc ban đầu
+    systemEnabled = isSwitchPressedRaw();
+    lastSwitchState = systemEnabled;
+    if (systemEnabled) {
+        currentState = STATE_WARMING_UP;
+        alarmCtrl.setState(STATE_WARMING_UP);
+    } else {
+        currentState = STATE_SAFE;
+        alarmCtrl.setState(STATE_SAFE);
+    }
 
     // Cấu hình MQTT
     mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
@@ -426,39 +463,37 @@ void setup() {
     mqttClient.setBufferSize(2048);   // bản tin wifiscan có thể tới ~1.2KB
     WiFi.setAutoReconnect(true);
 
-    // Bíp test còi lúc khởi động
-    alarmCtrl.triggerBeep(100);
-    delay(150);
-    alarmCtrl.triggerBeep(100);
-
-    Serial.println(F("[INFO] Bắt đầu khởi động hệ thống và sấy cảm biến MQ-135..."));
+    Serial.println(F("[INFO] Hệ thống đã khởi động. Đang kết nối mạng..."));
 }
 
 void loop() {
-    // 1. Đọc luồng GPS NMEA từ UART2
+    // 1. Kiểm tra công tắc nhận biết đội mũ (KW11) & nút nhấn SOS
+    checkControls();
+
+    // 2. Đọc luồng GPS NMEA từ UART2 (luôn duy trì để định vị tìm mũ)
     readGps();
 
-    // 1b. Quét Wi-Fi để định vị khu vực (phòng 301 / hành lang)
+    // 2b. Quét Wi-Fi để định vị khu vực (phòng 301 / hành lang)
     handleWifiFingerprint();
 
-    // 2. Cập nhật cảm biến khí MQ-135 và còi
+    // 3. Cập nhật cảm biến khí MQ-135 và còi
     mq135.update();
     alarmCtrl.update();
 
-    // 3. Quét kiểm tra công tắc (KW11 / SOS)
-    checkSwitch();
-
-    // 4. Duy trì kết nối Wi-Fi và MQTT
+    // 4. Duy trì kết nối Wi-Fi và MQTT (luôn duy trì để giữ trạng thái Online)
     connectNetwork();
     if (mqttClient.connected()) {
         mqttClient.loop();
         flushEventQueue();
     }
 
-    // 5. Đánh giá ngưỡng nồng độ khí độc & điều khiển còi
+    // 5. Đánh giá ngưỡng nồng độ khí độc & điều khiển còi (chỉ khi đang đội mũ)
     SystemState previousState = currentState;
 
-    if (!mq135.isWarmedUp()) {
+    if (!systemEnabled) {
+        // Chưa đội mũ: giữ trạng thái an toàn
+        currentState = STATE_SAFE;
+    } else if (!mq135.isWarmedUp()) {
         currentState = STATE_WARMING_UP;
     } else {
         float currentPpm = mq135.getPpm();
@@ -496,7 +531,7 @@ void loop() {
         }
     }
 
-    // 6. Định kỳ gửi Telemetry lên Backend (mỗi 3 giây)
+    // 6. Định kỳ gửi Telemetry lên Backend mỗi 3 giây (gửi cả trạng thái đang đội hoặc chưa đội)
     unsigned long now = millis();
     if (now - lastTelemetryPublish >= TELEMETRY_INTERVAL_MS) {
         lastTelemetryPublish = now;
@@ -523,7 +558,13 @@ void loop() {
             default:               Serial.print(F("UNKNOWN")); break;
         }
 
-        if (!mq135.isWarmedUp()) {
+        if (!systemEnabled) {
+            Serial.print(F(" | PPM: "));
+            Serial.print(mq135.getPpm(), 1);
+            Serial.print(F(" | Công tắc: TẮT"));
+        } else if (!mq135.isWarmedUp()) {
+            Serial.print(F(" | PPM: "));
+            Serial.print(mq135.getPpm(), 1);
             Serial.print(F(" | Còn sấy: "));
             Serial.print(mq135.getRemainingWarmupTime());
             Serial.println(F("s..."));
@@ -546,7 +587,7 @@ void loop() {
                 Serial.print(F(" vệ tinh)"));
             }
             Serial.print(F(" | Công tắc: "));
-            Serial.print(isSwitchPressedRaw() ? F("ẤN") : F("NHẢ"));
+            Serial.print(isSwitchPressedRaw() ? F("BẬT") : F("TẮT"));
             Serial.println();
         }
     }

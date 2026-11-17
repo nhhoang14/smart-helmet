@@ -17,6 +17,8 @@ public interface AlertRepository extends JpaRepository<Alert, Long> {
 
     List<Alert> findByDeviceUidOrderByOccurredAtDesc(String deviceUid);
 
+    List<Alert> findByDeviceUidAndStatusOrderByOccurredAtDesc(String deviceUid, AlertStatus status);
+
     Page<Alert> findByTypeAndStatus(AlertType type, AlertStatus status, Pageable pageable);
 
     Page<Alert> findByType(AlertType type, Pageable pageable);

@@ -11,7 +11,8 @@ AlarmController::AlarmController(uint8_t buzzerPin)
       _lastToggleTime(0),
       _toggleState(false),
       _beepEndTime(0),
-      _isBeepingOnce(false) {}
+      _isBeepingOnce(false),
+      _isSilenced(false) {}
 
 void AlarmController::begin() {
     pinMode(_buzzerPin, OUTPUT);
@@ -22,6 +23,7 @@ void AlarmController::begin() {
 void AlarmController::setState(SystemState newState) {
     if (_currentState != newState) {
         _currentState = newState;
+        _isSilenced = false;
         _lastToggleTime = millis();
         _toggleState = false;
 
@@ -36,7 +38,19 @@ void AlarmController::setState(SystemState newState) {
     }
 }
 
+void AlarmController::silence() {
+    _isSilenced = true;
+    _isBeepingOnce = false;
+    setBuzzer(false);
+}
+
+bool AlarmController::isSounding() const {
+    if (_isSilenced) return false;
+    return (_currentState == STATE_DANGER || _currentState == STATE_WARNING || _isBeepingOnce);
+}
+
 void AlarmController::triggerBeep(uint16_t durationMs) {
+    if (_isSilenced) return;
     _isBeepingOnce = true;
     _beepEndTime = millis() + durationMs;
     setBuzzer(true);
@@ -44,6 +58,11 @@ void AlarmController::triggerBeep(uint16_t durationMs) {
 
 void AlarmController::update() {
     unsigned long now = millis();
+
+    if (_isSilenced) {
+        setBuzzer(false);
+        return;
+    }
 
     // Xử lý tiếng bíp đơn (nếu có yêu cầu từ hàm triggerBeep)
     if (_isBeepingOnce) {

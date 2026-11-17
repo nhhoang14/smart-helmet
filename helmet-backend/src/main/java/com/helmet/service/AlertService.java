@@ -267,6 +267,12 @@ public class AlertService {
                 .toList();
     }
 
+    public List<AlertDto> getDevicePendingAlerts(String deviceUid) {
+        return alertRepository.findByDeviceUidAndStatusOrderByOccurredAtDesc(deviceUid, AlertStatus.NEW).stream()
+                .map(AlertDto::fromEntity)
+                .toList();
+    }
+
     /**
      * Xác nhận xử lý sự cố (Mục 3.7.5 Bảng 3.6 và Bảng 3.13: POST /api/v1/alerts/{alertId}/ack)
      */

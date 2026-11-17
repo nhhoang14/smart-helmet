@@ -8,6 +8,8 @@ Firmware ESP32 cho hệ thống mũ bảo hộ thông minh, tích hợp:
 - **Công tắc khẩn cấp SOS / Công tắc hành trình KW11-3Z-2**: khi bấm, còi bíp phản hồi, lập tức lấy tọa độ vị trí, gửi sự kiện về backend và hiển thị cảnh báo tức thì trên Web Dashboard.
 - Truyền thông thời gian thực qua **MQTT Broker** (Eclipse Mosquitto) và **WebSocket (STOMP)**.
 
+Trong bản demo qua mạng, `HELMET_001` là mũ thật dùng firmware ESP32 và `HELMET_002` là mũ mô phỏng do backend phát telemetry tự động.
+
 ---
 
 ## 1. Sơ đồ kết nối phần cứng (ESP32 DevKit V1)
@@ -15,11 +17,15 @@ Firmware ESP32 cho hệ thống mũ bảo hộ thông minh, tích hợp:
 | Ngoại vi | Chân ESP32 | Ghi chú |
 |---|---|---|
 | **MQ-135 (AO)** | GPIO34 (ADC1_CH6) | Đọc analog điện áp cảm biến khí |
-| **MQ-135 (DO)** | GPIO35 | Digital interrupt / ngõ ra so sánh LM393 |
-| **GPS NEO-6M (TX)** | GPIO16 (RX2) | Nhận dữ liệu NMEA baud 9600 |
-| **GPS NEO-6M (RX)** | GPIO17 (TX2) | Gửi lệnh cấu hình NEO-6M |
-| **Active Buzzer** | GPIO25 | Còi báo động (HIGH: kêu, LOW: tắt) |
-| **Công tắc KW11 / SOS** | GPIO4 / GPIO27 | Nối GND, kích hoạt `INPUT_PULLUP` (ấn: mức LOW) |
+| **MQ-135 (AO)** | GPIO34 | AO qua cầu phân áp 12 kOhm/22 kOhm; chỉ đọc khi công tắc bật |
+| **GPS NEO-6M (TX)** | GPIO26 (RX2) | Nhận dữ liệu NMEA baud 9600 |
+| **GPS NEO-6M (RX)** | GPIO25 (TX2) | Gửi lệnh cấu hình NEO-6M |
+| **Active Buzzer** | GPIO13 | Còi báo động (HIGH: kêu, LOW: tắt) |
+| **Công tắc nguồn đo** | GPIO14 | C -> GND, NO -> GPIO14; bật là mức LOW |
+| **Nút tắt còi** | GPIO27 | Một đầu GND, một đầu GPIO27; nhấn là mức LOW |
+
+Khi công tắc GPIO14 tắt, MQ-135 và GPS không được khởi tạo/đọc và không gửi telemetry.
+Khi MQ-135 vượt ngưỡng, còi báo động sẽ kêu; nhấn nút GPIO27 để tắt còi. Còi được cho phép cảnh báo lại sau khi nồng độ khí trở về mức an toàn.
 
 ---
 
