@@ -163,79 +163,65 @@
         }, 7000);
     }
 
-    // ── Prepend alert row ─────────────────────────────────────────────────────
-    function prependAlert(data) {
+    // ── Quản lý danh sách cảnh báo (alertItems) ─────────────────────────────
+    let alertItems = [];
+
+    // Khởi tạo alertItems từ các phần tử do Thymeleaf render sẵn
+    const initialRows = document.querySelectorAll('#recent-alerts-list .alert-row[data-id]');
+    initialRows.forEach((row) => {
+        const id = row.dataset.id;
+        const status = row.dataset.status || 'NEW';
+        if (id && status === 'NEW') {
+            alertItems.push({
+                id: String(id),
+                type: row.dataset.type || 'ALERT',
+                device: row.dataset.device || device,
+                date: row.dataset.date || '',
+                time: row.dataset.time || '',
+                msg: row.dataset.msg || 'Cảnh báo',
+                severity: row.dataset.severity || 'WARNING'
+            });
+        }
+    });
+
+    function renderGroupedAlerts() {
         const list = document.getElementById('recent-alerts-list');
-        if (!list) return;
         const empty = document.getElementById('recent-alerts-empty');
-        if (empty) empty.hidden = true;
-        const row = document.createElement('div');
-        row.className = 'alert-row';
-        const now = new Date();
-        const pad = (n) => String(n).padStart(2, '0');
-        const dateStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
-        const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-        const devUid = data.deviceUid || device;
-        const msg = data.message || 'Cảnh báo mới';
-
-        row.dataset.type = data.type || data.alert_type || '';
-        row.dataset.device = devUid;
-        row.dataset.date = dateStr;
-        row.dataset.id = data.id || '';
-        row.dataset.msg = msg;
-        row.dataset.time = timeStr;
-
-        row.innerHTML = `
-            <div class="alert-icon-square">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                    <line x1="12" y1="9" x2="12" y2="13"/>
-                    <line x1="12" y1="17" x2="12.01" y2="17"/>
-                </svg>
-            </div>
-            <div class="alert-text-content">
-                <strong>${msg} · ${devUid}</strong>
-                <small>${dateStr} · ${timeStr}</small>
-            </div>
-            ${data.id ? `<button class="alert-ack-btn" data-ack-ids="${data.id}" data-ack-count="1">Xác nhận</button>` : ''}
-        `;
-        list.prepend(row);
-        setAlertCount(alertCount + 1);
-        groupAlerts();
-    }
-
-    // ── Alert grouping ────────────────────────────────────────────────────────
-    function groupAlerts() {
-        const list = document.getElementById('recent-alerts-list');
         if (!list) return;
-        const rows = Array.from(list.querySelectorAll('.alert-row[data-type]'));
-        if (!rows.length) return;
+
+        list.innerHTML = '';
+
+        if (!alertItems.length) {
+            if (empty) empty.hidden = false;
+            setAlertCount(0);
+            return;
+        }
+
+        if (empty) empty.hidden = true;
+        setAlertCount(alertItems.length);
 
         // Group by type + device + date
         const groups = {};
-        rows.forEach((row) => {
-            const key = `${row.dataset.type}|${row.dataset.device}|${row.dataset.date}`;
+        alertItems.forEach((item) => {
+            const key = `${item.type}|${item.device}|${item.date}`;
             if (!groups[key]) {
                 groups[key] = {
-                    msg: row.dataset.msg,
-                    device: row.dataset.device,
-                    date: row.dataset.date,
+                    msg: item.msg,
+                    device: item.device,
+                    date: item.date,
                     times: [],
                     ids: []
                 };
             }
-            if (row.dataset.time) groups[key].times.push(row.dataset.time);
-            if (row.dataset.id) groups[key].ids.push(row.dataset.id);
+            if (item.time) groups[key].times.push(item.time);
+            if (item.id) groups[key].ids.push(item.id);
         });
-
-        rows.forEach((r) => r.remove());
 
         Object.entries(groups).forEach(([, g]) => {
             const count = g.ids.length || g.times.length || 1;
             const div = document.createElement('div');
             div.className = 'alert-row';
 
-            // Calculate time display: "13/11/2026 · 17:22 – 17:28" or "13/11/2026 · 17:22"
             let timeDisplay = `${g.date}`;
             if (g.times.length > 0) {
                 const sortedTimes = [...g.times].sort();
@@ -271,23 +257,95 @@
         list.querySelectorAll('button[data-ack-ids]').forEach((btn) => {
             btn.addEventListener('click', async function () {
                 const ids = this.dataset.ackIds.split(',').filter(Boolean);
-                const cnt = parseInt(this.dataset.ackCount, 10) || ids.length;
                 this.disabled = true;
                 this.textContent = 'Đang xử lý...';
                 for (const id of ids) {
-                    try { await fetch(`/alerts/${id}/ack`, { method: 'POST' }); } catch (_) {}
+                    try { await fetch(`/alerts/${id}/ack`, { method: 'POST' }); } catch (_) { }
                 }
-                this.closest('.alert-row').remove();
-                setAlertCount(alertCount - cnt);
-                if (!list.querySelector('.alert-row')) {
-                    const empty = document.getElementById('recent-alerts-empty');
-                    if (empty) empty.hidden = false;
-                }
+                alertItems = alertItems.filter(it => !ids.includes(String(it.id)));
+                renderGroupedAlerts();
             });
         });
     }
 
-    groupAlerts();
+    function removeAlertById(id) {
+        const idStr = String(id);
+        const prevLen = alertItems.length;
+        alertItems = alertItems.filter(it => String(it.id) !== idStr);
+        if (alertItems.length !== prevLen) {
+            renderGroupedAlerts();
+        }
+    }
+
+    function prependAlert(data) {
+        const idStr = data.id ? String(data.id) : '';
+        if (idStr && alertItems.some(it => String(it.id) === idStr)) {
+            return;
+        }
+
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const dateStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+        const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        const isDanger = data.severity === 'DANGER' || String(data.type || '').includes('DANGER') || String(data.alert_type || '').includes('DANGER') || data.type === 'SOS';
+
+        alertItems.unshift({
+            id: idStr,
+            type: data.type || data.alert_type || 'ALERT',
+            device: data.deviceUid || device,
+            date: dateStr,
+            time: timeStr,
+            msg: data.message || 'Cảnh báo mới',
+            severity: isDanger ? 'DANGER' : 'WARNING'
+        });
+
+        renderGroupedAlerts();
+    }
+
+    renderGroupedAlerts();
+
+    // ── Còi tìm mũ & Tắt tiếng ──────────────────────────────────────────────
+    function updateBuzzerUI(buzzerOn) {
+        const subtext = document.getElementById('buzzer-subtext');
+        const btn = document.getElementById('buzzer-btn');
+        const inputOn = document.getElementById('buzzer-on-input');
+        const mapBox = document.querySelector('.map-preview-box');
+
+        if (subtext) subtext.textContent = buzzerOn ? 'Đang phát âm thanh' : 'Đang tắt';
+        if (btn) {
+            btn.textContent = buzzerOn ? 'Tắt tiếng' : 'Tìm mũ';
+            btn.classList.toggle('is-beeping', buzzerOn);
+        }
+        if (inputOn) {
+            inputOn.value = (!buzzerOn).toString();
+        }
+        if (mapBox) {
+            mapBox.classList.toggle('finding-pulse', buzzerOn);
+        }
+    }
+
+    const buzzerForm = document.getElementById('buzzer-form');
+    if (buzzerForm) {
+        buzzerForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+            const inputOn = document.getElementById('buzzer-on-input');
+            const targetOn = inputOn ? inputOn.value === 'true' : true;
+            const btn = document.getElementById('buzzer-btn');
+            try {
+                if (btn) btn.disabled = true;
+                await fetch(buzzerForm.action, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `on=${targetOn}`
+                });
+                updateBuzzerUI(targetOn);
+            } catch (_) {
+                buzzerForm.submit();
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        });
+    }
 
     const initialGas = Number(airQualityNumber?.textContent);
     if (Number.isFinite(initialGas) && initialGas > 0) updateAirQuality({ gasPpm: initialGas });
@@ -350,14 +408,18 @@
                 }
             }
 
-            // 6. Trạng thái còi
-            if (typeof data.buzzerOn === 'boolean') {
-                const subtext = document.getElementById('buzzer-subtext');
-                if (subtext) subtext.textContent = data.buzzerOn ? 'Đang phát âm thanh' : 'Đang tắt';
+            // 6. Trạng thái còi & Tìm mũ
+            if (typeof data.buzzerOn === 'boolean' || typeof data.buzzer_on === 'boolean') {
+                const bOn = data.buzzerOn ?? data.buzzer_on;
+                updateBuzzerUI(bOn);
             }
 
-            // 7. Toast & prepend cảnh báo
-            if (data.message && (data.alert_type || data.type || data.severity)) {
+            // 7. Xử lý cảnh báo (Alert Event / WebSocket)
+            if (data.status === 'ACKNOWLEDGED' || data.status === 'RESOLVED') {
+                if (data.id) {
+                    removeAlertById(data.id);
+                }
+            } else if (data.message && (data.alert_type || data.type || data.severity)) {
                 const isDanger = data.severity === 'DANGER' || String(data.type || '').includes('DANGER') || String(data.alert_type || '').includes('DANGER') || data.type === 'SOS';
                 showToast(data.message, isDanger ? 'danger' : 'warning');
                 prependAlert(data);

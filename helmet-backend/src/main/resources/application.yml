@@ -37,10 +37,10 @@ mqtt:
 
 # Helmet IoT Settings
 helmet:
-  default-device-id: "HELMET_001"
+  default-device-id: "HELMET_002"
   offline-check-interval-ms: 5000
   simulation:
-    # Tự động giả lập dữ liệu thực tế đẩy vào DB và WebSocket khi không có phần cứng ESP32 thật
+    # Mũ 001 nhận dữ liệu thật từ ESP32; mũ 002 phát dữ liệu mô phỏng.
     enabled: true
     interval-ms: 2000
 

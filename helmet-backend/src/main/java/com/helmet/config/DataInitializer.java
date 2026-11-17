@@ -29,6 +29,7 @@ public class DataInitializer implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
         initDeviceWithSettings("HELMET_001", "Mũ Bảo Hộ Thông Minh 01", "Nguyễn Văn An");
+        initDeviceWithSettings("HELMET_002", "Mũ mô phỏng 02", "Thiết bị mô phỏng");
         log.info("DataInitializer completed.");
     }
 

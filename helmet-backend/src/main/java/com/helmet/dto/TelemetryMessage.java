@@ -31,6 +31,12 @@ public class TelemetryMessage {
     private Double lng;
     private Long ts;
 
+    @JsonProperty("buzzer_on")
+    private Boolean buzzerOn;
+
+    @JsonProperty("buzzer_state")
+    private String buzzerState;
+
     @JsonProperty("location_source")
     private String locationSource;
 
